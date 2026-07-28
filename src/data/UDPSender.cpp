@@ -41,7 +41,7 @@ bool UDPSender::sendFile(const std::string& filePath, const std::string& destIP,
     //2. Thiết lập địa chỉ đích
     destAddr.sin_family = AF_INET;
     destAddr.sin_port = htons(destPort);
-    destAddr.sin_addr.s_addr = inet_addr(destIP.c_str());\
+    destAddr.sin_addr.s_addr = inet_addr(destIP.c_str());
 
     //3. Đọc file và gửi từng chunk
     uint16_t seq = 0;
@@ -63,7 +63,86 @@ bool UDPSender::sendFile(const std::string& filePath, const std::string& destIP,
         header->checksum = 0;
 
         //Tính checksum cho toàn bộ gói
-        size_t packetLen = sizeof(udp)
+        size_t packetLen = sizeof(udp_header_t) + bytesRead;
+        header->checksum = htons(calculate_checksum((uint8_t*)buffer, packetLen));
+
+        //Gửi gói và chờ ACK
+        bool sent = false; 
+        for (int attempt = 0; attempt < maxRetries; attempt++) {
+            //Gửi
+            int result = sendto(sock, buffer, packetLen, 0, (sockaddr*)&destAddr, sizeof(destAddr));
+            if (result == SOCKET_ERROR) {
+                std::cout << "Lỗi gửi gói seq" << seq << std::endl;
+                continue;
+            }
+            std::cout << "Đã gửi gói seq=" << seq << ", kích thước=" << packetLen << std::endl;
+
+            //Chờ ACK
+            if (waitForAck(seq)) {
+                sent = true;
+                break;
+            } 
+            else {
+             std::cout << "Timeout, thử lại gói seq=" << seq << std::endl;
+            }
+        }
+
+        if (!sent) {
+            std::cout << "Không thể gửi gói seq=" << seq << " sau " << maxRetries << "lần thử " << std::endl;
+            success = false;
+            break;  
+        }
+        seq++;
+    }
+
+    file.close();
+    return success;
+}
+
+bool UDPSender::sendPacket(const uint8_t* data, size_t len, uint16_t seq) {
+    return true;
+}
+
+bool UDPSender::waitForAck(uint16_t expectedSeq) {
+    int timeout = timeoutMs;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
+    
+    char  recvBuffer[1024];
+    sockaddr_in fromAddr;
+    int fromLen = sizeof(fromAddr);
+
+    while(true) {
+        int recvLen = recvfrom(sock, recvBuffer, sizeof(recvBuffer), 0, (sockaddr*)&fromAddr, &fromLen);
+        if (recvLen == SOCKET_ERROR) {
+            int error = WSAGetLastError();
+            if (error == WSAETIMEDOUT) {
+                return false;
+            }
+            std::cout << "Lỗi recvfrom: " << error << std::endl;
+            return false;
+        }
+        
+        // Kiểm tra gói ACK
+        udp_header_t* header = (udp_header_t*)recvBuffer;
+        if (ntohs(header->magic) != MAGIC_NUMBER) continue;
+
+        // Kiểm tra checksum
+        size_t pktLen = recvLen;
+        if (!verify_checksum((uint8_t*)recvBuffer, pktLen)) {
+            std::cout << "Checksum sai, bỏ qua gói ACK." << std::endl;
+            continue;
+        }
+
+        uint16_t ackSeq = ntohs(header->ack);
+        if (ackSeq == expectedSeq) {
+            std::cout << "Nhận ACK cho seq=" << expectedSeq << std::endl;
+            return true;
+        }
+        else {
+            std::cout << "ACK không khớp, nhận" << ackSeq << ", mong đợi" << expectedSeq << std::endl;
+        }
+
 
     }
+
 }

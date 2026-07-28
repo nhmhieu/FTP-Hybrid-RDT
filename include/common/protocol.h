@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-#define MAGIC_NUMBER
+#define MAGIC_NUMBER 0xCAFE
 #define UDP_PAYLOAD_MAX 1024 //Mỗi gói chở tối đa 1024 byte dữ liệu
 
 #pragma pack(push, 1) // Ép chặt struct
