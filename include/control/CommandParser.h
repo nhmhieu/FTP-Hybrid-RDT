@@ -5,11 +5,10 @@
 
 // Danh sách các lệnh FTP hỗ trợ
 enum class FTPCommand {
-    USER,
-    PASS,
-    QUIT,
-    NOOP,
-    UNKNOWN // Lệnh không hợp lệ hoặc chưa hỗ trợ
+    USER, PASS, QUIT, NOOP, PWD, CWD, CDUP, MKD, RMD,
+    LIST, NLST, STAT, SIZE, MDTM, TYPE, MODE, PORT, PASV,
+    RETR, STOR, STOU, APPE, DELE, RNFR, RNTO, HASH, ABOR, HELP,
+    UNKNOWN
 };
 
 // Cấu trúc lưu thông tin kết quả phân tích

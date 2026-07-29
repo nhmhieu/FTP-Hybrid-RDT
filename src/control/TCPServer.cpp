@@ -1,8 +1,13 @@
 #include "control/TCPServer.h"
 #include "control/CommandParser.h"
+#include "control/FileSystem.h"
+#include "control/SessionManager.h"
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 // Thêm dòng này để linker tự động liên kết Winsock library
 #pragma comment(lib, "Ws2_32.lib")
@@ -93,9 +98,12 @@ void TCPServer::acceptClients() {
 void TCPServer::handleClient(SOCKET clientSocket) {
     char buffer[1024];
 
-    // Gửi thông điệp chào mừng chuẩn FTP (Mã 220) khi client vừa kết nối
+    // Khởi tạo Root/Current Directory riêng cho Client này
+    fs::path currentDir = fs::current_path();
+
+    // 1. Gửi Welcome Message chuẩn (dùng welcomeMsg.c_str() và welcomeMsg.length())
     std::string welcomeMsg = "220 Welcome to FTP Server\r\n";
-    send(clientSocket, welcomeMsg.c_str(), welcomeMsg.length(), 0);
+    send(clientSocket, welcomeMsg.c_str(), static_cast<int>(welcomeMsg.length()), 0);
 
     while (true) {
         memset(buffer, 0, sizeof(buffer));
@@ -103,20 +111,16 @@ void TCPServer::handleClient(SOCKET clientSocket) {
 
         if (bytesReceived > 0) {
             std::string rawCommand(buffer);
-
-            // 1. Dùng CommandParser để giải mã câu lệnh
             ParsedCommand cmd = CommandParser::parse(rawCommand);
             std::string response = "";
 
-            // 2. Xử lý các lệnh cơ bản
             switch (cmd.command) {
+                // === NHÓM QUẢN LÝ PHIÊN ===
             case FTPCommand::USER:
-                std::cout << "[USER]: " << cmd.arg << std::endl;
                 response = "331 Password required for " + cmd.arg + "\r\n";
                 break;
 
             case FTPCommand::PASS:
-                std::cout << "[PASS]: " << cmd.arg << std::endl;
                 response = "230 User logged in, proceed.\r\n";
                 break;
 
@@ -126,24 +130,100 @@ void TCPServer::handleClient(SOCKET clientSocket) {
 
             case FTPCommand::QUIT:
                 response = "221 Goodbye.\r\n";
-                send(clientSocket, response.c_str(), response.length(), 0);
+                send(clientSocket, response.c_str(), static_cast<int>(response.length()), 0);
                 closesocket(clientSocket);
-                return; // Thoát thread
+                return;
+
+                // === NHÓM ĐIỀU HƯỚNG THƯ MỤC ===
+            case FTPCommand::PWD: {
+                // Output chuẩn: 257 "C:/path/to/dir" is current directory.
+                response = "257 \"" + currentDir.generic_string() + "\" is current directory.\r\n";
+                break;
+            }
+
+            case FTPCommand::CWD: {
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                // Hỗ trợ cả đường dẫn tương đối và tuyệt đối
+                fs::path targetPath = fs::path(cmd.arg);
+                if (targetPath.is_relative()) {
+                    targetPath = currentDir / targetPath;
+                }
+
+                // Chuẩn hóa đường dẫn (giải quyết các kí tự . hoặc ..)
+                std::error_code ec;
+                targetPath = fs::canonical(targetPath, ec);
+
+                if (!ec && fs::exists(targetPath) && fs::is_directory(targetPath)) {
+                    currentDir = targetPath;
+                    response = "250 Directory successfully changed.\r\n";
+                }
+                else {
+                    response = "550 Failed to change directory.\r\n";
+                }
+                break;
+            }
+
+            case FTPCommand::CDUP: {
+                // Lùi về thư mục cha của currentDir
+                if (currentDir.has_parent_path()) {
+                    currentDir = currentDir.parent_path();
+                    response = "200 Directory changed to parent.\r\n";
+                }
+                else {
+                    response = "550 Cannot move above root.\r\n";
+                }
+                break;
+            }
+
+            case FTPCommand::MKD: {
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                fs::path targetPath = currentDir / cmd.arg;
+                std::error_code ec;
+                if (fs::create_directory(targetPath, ec)) {
+                    response = "257 \"" + cmd.arg + "\" directory created.\r\n";
+                }
+                else {
+                    response = "550 Create directory failed.\r\n";
+                }
+                break;
+            }
+
+            case FTPCommand::RMD: {
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                fs::path targetPath = currentDir / cmd.arg;
+                std::error_code ec;
+                // fs::remove chỉ xóa nếu là file hoặc folder RỖNG
+                if (fs::is_directory(targetPath) && fs::remove(targetPath, ec)) {
+                    response = "250 Directory removed.\r\n";
+                }
+                else {
+                    response = "550 Remove directory failed (dir may not be empty or exist).\r\n";
+                }
+                break;
+            }
 
             default:
                 response = "500 Unknown command.\r\n";
                 break;
             }
 
-            // Gửi phản hồi lại cho Client
-            send(clientSocket, response.c_str(), response.length(), 0);
-
+            // Gửi response chuỗi chuẩn qua socket (dùng response.c_str())
+            send(clientSocket, response.c_str(), static_cast<int>(response.length()), 0);
         }
-        else if (bytesReceived == 0) {
+        else if (bytesReceived <= 0) {
             std::cout << "[-] Client ngắt kết nối." << std::endl;
-            break;
-        }
-        else {
             break;
         }
     }

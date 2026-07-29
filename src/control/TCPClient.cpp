@@ -1,9 +1,12 @@
-#include "TCPClient.h"
+#include "control/TCPClient.h"
 #include <iostream>
 
 TCPClient::TCPClient() : clientSocket(INVALID_SOCKET), isConnected(false) {
     WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
+    int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (iResult != 0) {
+        std::cerr << "[-] WSAStartup failed with error: " << iResult << std::endl;
+    }
 }
 
 TCPClient::~TCPClient() {

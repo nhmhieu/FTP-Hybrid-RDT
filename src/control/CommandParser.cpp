@@ -2,7 +2,6 @@
 #include <sstream>
 #include <algorithm>
 
-// Hàm hỗ trợ: Cắt khoảng trắng và ký tự newline (\r, \n) ở hai đầu chuỗi
 static std::string trim(const std::string& str) {
     size_t first = str.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) return "";
@@ -18,31 +17,28 @@ ParsedCommand CommandParser::parse(const std::string& rawCmd) {
     std::string cleanStr = trim(rawCmd);
     if (cleanStr.empty()) return result;
 
-    // Cắt chuỗi theo khoảng trắng đầu tiên
     std::stringstream ss(cleanStr);
     std::string cmdStr;
-    ss >> cmdStr; // Lấy từ đầu tiên (Tên lệnh)
+    ss >> cmdStr;
 
-    // Lấy phần còn lại làm tham số
     std::getline(ss, result.arg);
     result.arg = trim(result.arg);
 
-    // Chuyển tên lệnh thành chữ hoa để so sánh (không phân biệt hoa/thường)
     std::transform(cmdStr.begin(), cmdStr.end(), cmdStr.begin(), ::toupper);
 
-    // So sánh lệnh và gán Enum tương ứng
-    if (cmdStr == "USER") {
-        result.command = FTPCommand::USER;
-    }
-    else if (cmdStr == "PASS") {
-        result.command = FTPCommand::PASS;
-    }
-    else if (cmdStr == "QUIT") {
-        result.command = FTPCommand::QUIT;
-    }
-    else if (cmdStr == "NOOP") {
-        result.command = FTPCommand::NOOP;
-    }
+    // --- NHÓM QUẢN LÝ PHIÊN ---
+    if (cmdStr == "USER")        result.command = FTPCommand::USER;
+    else if (cmdStr == "PASS")   result.command = FTPCommand::PASS;
+    else if (cmdStr == "QUIT")   result.command = FTPCommand::QUIT;
+    else if (cmdStr == "NOOP")   result.command = FTPCommand::NOOP;
+
+    // --- NHÓM ĐIỀU HƯỚNG THƯ MỤC (BỔ SUNG) ---
+    else if (cmdStr == "PWD")    result.command = FTPCommand::PWD;
+    else if (cmdStr == "CWD")    result.command = FTPCommand::CWD;
+    else if (cmdStr == "CDUP")   result.command = FTPCommand::CDUP;
+    else if (cmdStr == "MKD")    result.command = FTPCommand::MKD;
+    else if (cmdStr == "RMD")    result.command = FTPCommand::RMD;
+
     else {
         result.command = FTPCommand::UNKNOWN;
     }
