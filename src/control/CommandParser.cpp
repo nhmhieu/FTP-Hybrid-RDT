@@ -39,6 +39,10 @@ ParsedCommand CommandParser::parse(const std::string& rawCmd) {
     else if (cmdStr == "MKD")    result.command = FTPCommand::MKD;
     else if (cmdStr == "RMD")    result.command = FTPCommand::RMD;
 
+    else if (cmdStr == "LIST")   result.command = FTPCommand::LIST;
+    else if (cmdStr == "RETR")   result.command = FTPCommand::RETR;
+    else if (cmdStr == "STOR")   result.command = FTPCommand::STOR;
+
     else {
         result.command = FTPCommand::UNKNOWN;
     }
