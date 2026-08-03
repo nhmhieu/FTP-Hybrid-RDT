@@ -24,13 +24,13 @@ bool TCPServer::start() {
     WSADATA wsaData;
     int res = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (res != 0) {
-        std::cerr << "[LỖI] WSAStartup thất bại: " << res << std::endl;
+        std::cerr << "[ERROR] WSAStartup failed: " << res << std::endl;
         return false;
     }
 
     listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listenSocket == INVALID_SOCKET) {
-        std::cerr << "[LỖI] Không thể tạo socket: " << WSAGetLastError() << std::endl;
+        std::cerr << "[ERROR] Cannot create socket: " << WSAGetLastError() << std::endl;
         WSACleanup();
         return false;
     }
@@ -41,25 +41,25 @@ bool TCPServer::start() {
     serverAddr.sin_port = htons(port);
 
     if (bind(listenSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-        std::cerr << "[LỖI] Bind thất bại: " << WSAGetLastError() << std::endl;
+        std::cerr << "[ERROR] Bind failed: " << WSAGetLastError() << std::endl;
         closesocket(listenSocket);
         WSACleanup();
         return false;
     }
 
     if (listen(listenSocket, SOMAXCONN) == SOCKET_ERROR) {
-        std::cerr << "[LỖI] Listen thất bại: " << WSAGetLastError() << std::endl;
+        std::cerr << "[ERROR] Listen failed: " << WSAGetLastError() << std::endl;
         closesocket(listenSocket);
         WSACleanup();
         return false;
     }
 
-    std::cout << "[SERVER] Đã khởi tạo thành công trên cổng " << port << std::endl;
+    std::cout << "[SERVER] Start up succeeded on port " << port << std::endl;
     return true;
 }
 
 void TCPServer::acceptClients() {
-    std::cout << "[SERVER] Đang chờ Client kết nối..." << std::endl;
+    std::cout << "[SERVER] Waiting for client to connect..." << std::endl;
 
     while (true) {
         sockaddr_in clientAddr;
@@ -68,13 +68,13 @@ void TCPServer::acceptClients() {
         SOCKET clientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientAddrSize);
 
         if (clientSocket == INVALID_SOCKET) {
-            std::cerr << "[LỖI] Accept thất bại: " << WSAGetLastError() << std::endl;
+            std::cerr << "[ERROR] Accept failed: " << WSAGetLastError() << std::endl;
             continue;
         }
 
         char clientIP[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
-        std::cout << "[+] Client mới kết nối từ: " << clientIP << ":" << ntohs(clientAddr.sin_port) << std::endl;
+        std::cout << "[+] New client connnected from: " << clientIP << ":" << ntohs(clientAddr.sin_port) << std::endl;
 
         std::thread clientThread(&TCPServer::handleClient, this, clientSocket);
         clientThread.detach();
@@ -94,7 +94,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
         int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
 
         if (bytesReceived <= 0) {
-            std::cout << "[-] Client ngắt kết nối." << std::endl;
+            std::cout << "[-] Client disconnected." << std::endl;
             break;
         }
 
