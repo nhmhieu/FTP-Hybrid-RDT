@@ -1,27 +1,33 @@
-#ifndef UDPSENDER_H
-#define UDPSENDER_H
+#ifndef UDP_SENDER_H
+#define UDP_SENDER_H
 
+#include <cstdint>
 #include <string>
 #include <winsock2.h>
-#include <cstdint>
 
 class UDPSender {
 private:
-    SOCKET sock; //Socket UDP
-    sockaddr_in destAddr; // Địa chỉ đích (IP + port)
-    int timeoutMs; 
+    SOCKET sock;
+    sockaddr_in destAddr;
+    int timeoutMs;
     int maxRetries;
+    bool winsockStarted;
 
-    // Gửi một gói dữ liệu với số thứ tự seq
-    bool sendPacket(const uint8_t* data, size_t len, uint16_t seq);
-    // Chờ ACK cho seq đã gửi 
-    bool waitForAck(uint16_t expectedSeq);
+    bool sendPacketAndWaitAck(
+        const std::uint8_t* payload,
+        std::size_t payloadLen,
+        std::uint32_t seq,
+        std::uint8_t flags
+    );
+
+    bool waitForAck(std::uint32_t expectedSeq, bool expectFinAck);
 
 public:
     UDPSender();
     ~UDPSender();
-    bool sendFile(const std::string& filePath, const std::string& destIP, int destPort);
 
+    bool isReady() const;
+    bool sendFile(const std::string& filePath, const std::string& destIP, int destPort);
 };
 
 #endif

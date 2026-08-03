@@ -1,32 +1,35 @@
-#include "checksum.h"
+#include "common/checksum.h"
 
-// Hàm tính checksum: nhận con trỏ dữ liệu và độ dài, trả về checksum 16-bit
-uint16_t calculate_checksum(const uint8_t* date, size_t len) {
-    uint32_t sum = 0; // dùng 32-bit để tính tổng
+std::uint16_t calculate_checksum(const std::uint8_t* data, std::size_t len) {
+    std::uint32_t sum = 0;
+    std::size_t i = 0;
 
-    // Duyệt từng cặp 2 byte (16-bit)
-    const uint16_t* ptr = (const uint16_t*) date;
-    while (len > 1) {
-        sum += *ptr++; // cộng giá trị 16-bit vào sum
-    }
-    
-    //Fold: đưa các bit cao xuống thấp cho đến khi chỉ còn 16 bit
-    while (sum >> 16) {
-        sum = (sum & 0xFFFF) + (sum >> 16);
+    // Ghép từng cặp byte theo network byte order.
+    while (i + 1 < len) {
+        const std::uint16_t word =
+            (static_cast<std::uint16_t>(data[i]) << 8) |
+            static_cast<std::uint16_t>(data[i + 1]);
+        sum += word;
+        i += 2;
     }
 
-    // Lấy phân bù 1 
-    return (uint16_t)(~sum);
+    // Nếu số byte lẻ, byte cuối được xem là byte cao của word 16-bit.
+    if (i < len) {
+        sum += static_cast<std::uint16_t>(data[i]) << 8;
+    }
+
+    // Fold carry 32-bit xuống 16-bit.
+    while ((sum >> 16) != 0) {
+        sum = (sum & 0xFFFFu) + (sum >> 16);
+    }
+
+    return static_cast<std::uint16_t>(~sum);
 }
 
-bool verify_checksum(const uint8_t* packet, size_t packetLen) {
-    // Lấy checksum từ gói
-    uint16_t storedChecksum  = *(uint16_t*)(packet + 6);
-    // Tạm thời ghi 0 vào vị trí checksum để tính lại
-    uint16_t* checksumPtr = (uint16_t*)(packet + 6);
-    uint16_t old = *checksumPtr;
-    *checksumPtr = 0;
-    uint16_t calculated = calculate_checksum(packet, packetLen);
-    *checksumPtr = old; // Khôi phục lại
-    return (calculated = storedChecksum);
+bool verify_checksum(const std::uint8_t* packet, std::size_t packetLen) {
+    if (packet == nullptr || packetLen == 0) {
+        return false;
+    }
+
+    return calculate_checksum(packet, packetLen) == 0;
 }

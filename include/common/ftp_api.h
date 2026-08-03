@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace UDPDate {
+namespace UDPData {
     // Hàm gửi file: gọi khi client yêu cầu tải file (RETR)
     bool sendFile(const std::string& filePath, const std::string& destIP, int destPort);
 
