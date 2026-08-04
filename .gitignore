@@ -42,6 +42,7 @@ client.log
 test_*.bin
 received_*.bin
 output.bin
+output.txt
 temp_uploads/
 temp_downloads/
 .env
