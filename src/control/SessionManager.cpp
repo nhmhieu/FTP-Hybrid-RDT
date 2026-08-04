@@ -39,3 +39,13 @@ void ClientSession::setCurrentDir(const fs::path& path) {
 SOCKET ClientSession::getControlSocket() const {
     return controlSocket;
 }
+
+// Quản lý thông tin kênh dữ liệu UDP
+void ClientSession::setDataEndpoint(const std::string& ip, int port) {
+    dataIP = ip;
+    dataPort = port;
+}
+
+int ClientSession::getDataPort() const {
+    return dataPort;
+}

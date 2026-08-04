@@ -1,0 +1,50 @@
+# C++ compiled outputs
+*.obj
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.out
+*.pdb
+*.ilk
+*.exp
+*.lib
+build/
+Debug/
+Release/
+x64/
+x86/
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+*.userosscache
+*.iml
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.log
+
+# Project specific
+server.log
+client.log
+test_*.bin
+received_*.bin
+output.bin
+temp_uploads/
+temp_downloads/
+.env
+*.key
+*.pem
+.opencode
