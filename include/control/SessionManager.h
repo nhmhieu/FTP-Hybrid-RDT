@@ -18,9 +18,12 @@ private:
     std::string username;
     fs::path currentDir;
 
-    // Các thông tin chuẩn bị cho Kênh Data UDP của Hiếu sau này
+    // Quản lý kênh dữ liệu UDP
     std::string dataIP;
     int dataPort;
+    bool hasEndpoint;
+
+    std::string renameFromPath;
 
 public:
     ClientSession(SOCKET sock);
@@ -37,7 +40,14 @@ public:
 
     // Quản lý kênh dữ liệu UDP
     void setDataEndpoint(const std::string& ip, int port);
+    std::string getDataIp() const;
     int getDataPort() const;
+    bool hasDataEndpoint() const;
+    void clearDataEndpoint();
+
+    void setRenameFrom(const std::string& path);
+    std::string getRenameFrom() const;
+    void clearRenameFrom();
 
     SOCKET getControlSocket() const;
 };

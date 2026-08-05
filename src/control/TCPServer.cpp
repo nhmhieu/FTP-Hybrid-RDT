@@ -2,6 +2,7 @@
 #include "control/CommandParser.h"
 #include "control/FileSystem.h"
 #include "control/SessionManager.h"
+#include <string>
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -18,6 +19,10 @@ TCPServer::~TCPServer() {
         closesocket(listenSocket);
     }
     WSACleanup();
+}
+
+void TCPServer::sendResponse(SOCKET clientSocket, const std::string& response) {
+    send(clientSocket, response.c_str(), static_cast<int>(response.length()), 0);
 }
 
 bool TCPServer::start() {
@@ -74,7 +79,7 @@ void TCPServer::acceptClients() {
 
         char clientIP[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
-        std::cout << "[+] New client connnected from: " << clientIP << ":" << ntohs(clientAddr.sin_port) << std::endl;
+        std::cout << "[+] New client connected from: " << clientIP << ":" << ntohs(clientAddr.sin_port) << std::endl;
 
         std::thread clientThread(&TCPServer::handleClient, this, clientSocket);
         clientThread.detach();
@@ -86,9 +91,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
     std::string pendingData;
     char buffer[1024];
 
-    // Gửi Welcome Message chuẩn
-    std::string welcomeMsg = "220 Welcome to FTP Server\r\n";
-    send(clientSocket, welcomeMsg.c_str(), static_cast<int>(welcomeMsg.length()), 0);
+    sendResponse(clientSocket, "220 Welcome to FTP Server\r\n");
 
     while (true) {
         int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
@@ -142,7 +145,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
 
             case FTPCommand::QUIT:
                 response = "221 Goodbye.\r\n";
-                send(clientSocket, response.c_str(), static_cast<int>(response.length()), 0);
+                sendResponse(clientSocket, response);
                 closesocket(clientSocket);
                 return;
 
@@ -269,14 +272,136 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 }
                 break;
 
+            
+            case FTPCommand::SIZE: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+                if (FileSystem::fileExists(session.getCurrentDir(), cmd.arg)) {
+                    uintmax_t fileSize = FileSystem::getFileSize(session.getCurrentDir(), cmd.arg);
+                    response = "213 " + std::to_string(fileSize) + "\r\n";
+                }
+                else {
+                    response = "550 File not found or is a directory.\r\n";
+                }
+                break;
+            }
+
+                            
+            case FTPCommand::DELE: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+                fs::path filePath = session.getCurrentDir() / cmd.arg;
+                std::error_code ec;
+                if (fs::is_regular_file(filePath, ec) && fs::remove(filePath, ec)) {
+                    response = "250 File deleted successfully.\r\n";
+                }
+                else {
+                    response = "550 Delete operation failed (file missing or permission denied).\r\n";
+                }
+                break;
+            }
+
+                            
+            case FTPCommand::NLST: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+
+                fs::path targetDir = session.getCurrentDir();
+                if (!cmd.arg.empty()) {
+                    targetDir = targetDir / cmd.arg;
+                }
+
+                std::error_code ec;
+                if (!fs::exists(targetDir, ec) || !fs::is_directory(targetDir, ec)) {
+                    response = "550 Invalid directory.\r\n";
+                    break;
+                }
+
+                std::string nameList = "";
+                for (const auto& entry : fs::directory_iterator(targetDir, ec)) {
+                    nameList += entry.path().filename().string() + "\r\n";
+                }
+
+                response = "226 Name list status follows.\r\n" + nameList;
+                break;
+            }
+
+             
+            case FTPCommand::RNFR: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                fs::path targetPath = session.getCurrentDir() / cmd.arg;
+                std::error_code ec;
+                if (fs::exists(targetPath, ec)) {
+                    session.setRenameFrom(cmd.arg);
+                    response = "350 Requested file action pending RNTO.\r\n";
+                }
+                else {
+                    response = "550 File or directory does not exist.\r\n";
+                }
+                break;
+            }
+
+            
+            case FTPCommand::RNTO: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+                if (session.getRenameFrom().empty()) {
+                    response = "503 Bad sequence of commands. Call RNFR first.\r\n";
+                    break;
+                }
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                fs::path oldPath = session.getCurrentDir() / session.getRenameFrom();
+                fs::path newPath = session.getCurrentDir() / cmd.arg;
+
+                std::error_code ec;
+                fs::rename(oldPath, newPath, ec);
+
+                if (!ec) {
+                    response = "250 File renamed successfully.\r\n";
+                }
+                else {
+                    response = "550 Rename operation failed.\r\n";
+                }
+
+                session.clearRenameFrom(); // Reset trạng thái rename
+                break;
+            }
+
             default:
                 response = "500 Unknown command.\r\n";
                 break;
             }
 
-            send(clientSocket, response.c_str(), static_cast<int>(response.length()), 0);
+            sendResponse(clientSocket, response);
         }
     }
 
     closesocket(clientSocket);
-}

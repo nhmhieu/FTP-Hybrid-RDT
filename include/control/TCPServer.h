@@ -13,6 +13,8 @@ private:
     // Hàm xử lý dữ liệu truyền/nhận riêng cho từng client
     void handleClient(SOCKET clientSocket);
 
+    void sendResponse(SOCKET clientSocket, const std::string& response);
+
 public:
     // Constructor (Khởi tạo)
     TCPServer(int serverPort);
