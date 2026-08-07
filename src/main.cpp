@@ -1,34 +1,253 @@
 #include "control/TCPServer.h"
-#include "control/CommandParser.h"
-#include "control/SessionManager.h"
-#include "control/FileSystem.h"
+#include "control/TCPClient.h"
+
 #include <iostream>
-#include <thread>
-#include <vector>
+#include <string>
+#include <sstream>
+#include <filesystem>
 
 #pragma comment(lib, "Ws2_32.lib")
 
-int main(int argc, char* argv[]) {
-    // Khởi tạo Winsock Server ở cổng 21 (cổng FTP chuẩn) hoặc 8080 để test
-    int port = 8080;
+namespace fs = std::filesystem;
 
-    std::cout << "========================================" << std::endl;
-    std::cout << "      HYBRID FTP SERVER - STARTING      " << std::endl;
-    std::cout << "========================================" << std::endl;
+
+// ========================================
+// Run server
+// ========================================
+int runServer(int port) {
+    std::cout
+        << "========================================\n"
+        << "      HYBRID FTP SERVER - STARTING      \n"
+        << "========================================\n";
 
     TCPServer server(port);
 
-    if (server.start()) {
-        std::cout << "[+] Server Listening on port " << port << "..." << std::endl;
-        std::cout << "[+] Waiting for incoming connections..." << std::endl;
+    if (!server.start()) {
+        std::cerr
+            << "[-] Failed to start FTP Server!"
+            << std::endl;
 
-        // Vòng lặp lắng nghe và tạo Thread riêng xử lý từng Client kết nối tới
-        server.acceptClients();
-    }
-    else {
-        std::cerr << "[-] Failed to start FTP Server!" << std::endl;
         return 1;
     }
 
+    std::cout
+        << "[+] Server Listening on port "
+        << port
+        << "..."
+        << std::endl;
+
+    std::cout
+        << "[+] Waiting for incoming connections..."
+        << std::endl;
+
+    server.acceptClients();
+
     return 0;
+}
+
+
+// ========================================
+// Run client
+// ========================================
+int runClient(
+    const std::string& serverIP,
+    int serverPort
+) {
+    constexpr int SERVER_STOR_UDP_PORT = 8081;
+
+    TCPClient client;
+
+    std::cout
+        << "========================================\n"
+        << "      HYBRID FTP CLIENT - STARTING      \n"
+        << "========================================\n";
+
+    if (!client.connectToServer(
+            serverIP,
+            serverPort
+        )) {
+
+        std::cerr
+            << "[-] Cannot connect to server "
+            << serverIP
+            << ":"
+            << serverPort
+            << std::endl;
+
+        return 1;
+    }
+
+    // Read welcome message: 220
+    std::string welcome =
+        client.receiveData();
+
+    if (!welcome.empty()) {
+        std::cout << welcome;
+    }
+
+    std::cout
+        << "\nCommands:\n"
+        << "  USER admin\n"
+        << "  PASS 123\n"
+        << "  PWD\n"
+        << "  LIST\n"
+        << "  STOR <local-file-path>\n"
+        << "  QUIT\n"
+        << std::endl;
+
+    while (true) {
+        std::cout << "ftp> ";
+
+        std::string input;
+
+        if (!std::getline(std::cin, input)) {
+            break;
+        }
+
+        if (input.empty()) {
+            continue;
+        }
+
+        // ====================================
+        // Special handling for STOR
+        // ====================================
+        std::istringstream iss(input);
+
+        std::string command;
+        iss >> command;
+
+        if (command == "STOR") {
+            std::string localFilePath;
+
+            std::getline(iss, localFilePath);
+
+            // Remove first space
+            if (!localFilePath.empty() &&
+                localFilePath.front() == ' ') {
+
+                localFilePath.erase(0, 1);
+            }
+
+            if (localFilePath.empty()) {
+                std::cout
+                    << "Usage: STOR <local-file-path>"
+                    << std::endl;
+
+                continue;
+            }
+
+            fs::path localPath(localFilePath);
+
+            // Server only receives the filename,
+            // not the client's local directory.
+            std::string remoteFileName =
+                localPath.filename().string();
+
+            bool success =
+                client.uploadFile(
+                    localFilePath,
+                    remoteFileName,
+                    serverIP,
+                    SERVER_STOR_UDP_PORT
+                );
+
+            if (success) {
+                std::cout
+                    << "[CLIENT] STOR completed."
+                    << std::endl;
+            }
+            else {
+                std::cout
+                    << "[CLIENT] STOR failed."
+                    << std::endl;
+            }
+
+            continue;
+        }
+
+        // ====================================
+        // Normal TCP commands
+        // ====================================
+        if (!client.sendData(
+                input + "\r\n"
+            )) {
+
+            std::cerr
+                << "[-] Failed to send command."
+                << std::endl;
+
+            break;
+        }
+
+        std::string response =
+            client.receiveData();
+
+        if (response.empty()) {
+            std::cerr
+                << "[-] Server disconnected."
+                << std::endl;
+
+            break;
+        }
+
+        std::cout << response;
+
+        if (command == "QUIT") {
+            break;
+        }
+    }
+
+    client.disconnect();
+
+    return 0;
+}
+
+
+// ========================================
+// Main
+// ========================================
+int main(int argc, char* argv[]) {
+    constexpr int DEFAULT_TCP_PORT = 8080;
+
+    /*
+     * No argument:
+     *     hybrid_ftp.exe
+     *
+     * Keep old behavior -> run server.
+     */
+    if (argc == 1) {
+        return runServer(DEFAULT_TCP_PORT);
+    }
+
+    std::string mode = argv[1];
+
+    // ====================================
+    // SERVER MODE
+    // ====================================
+    if (mode == "server") {
+        return runServer(DEFAULT_TCP_PORT);
+    }
+
+    // ====================================
+    // CLIENT MODE
+    // ====================================
+    if (mode == "client") {
+        std::string serverIP = "127.0.0.1";
+
+        if (argc >= 3) {
+            serverIP = argv[2];
+        }
+
+        return runClient(
+            serverIP,
+            DEFAULT_TCP_PORT
+        );
+    }
+
+    std::cout
+        << "Usage:\n"
+        << "  hybrid_ftp.exe server\n"
+        << "  hybrid_ftp.exe client [server-ip]\n";
+
+    return 1;
 }

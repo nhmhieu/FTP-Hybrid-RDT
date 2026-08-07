@@ -25,6 +25,14 @@ public:
     // Nhận phản hồi từ Server
     std::string receiveData();
 
+    // Upload file lên Server
+    bool uploadFile(
+        const std::string& localFilePath,
+        const std::string& remoteFileName,
+        const std::string& serverIP,
+        int udpPort = 8081
+    );
+
     // Ngắt kết nối
     void disconnect();
 };
