@@ -1,4 +1,6 @@
 #include "control/FileSystem.h"
+#include <chrono>
+#include <ctime>
 #include <sstream>
 
 bool FileSystem::changeDirectory(fs::path& currentDir, const std::string& targetPath) {
@@ -79,4 +81,27 @@ uintmax_t FileSystem::getFileSize(const fs::path& currentDir, const std::string&
         return fs::file_size(filePath, ec);
     }
     return 0;
+}
+std::string FileSystem::getLastModifiedTime(const fs::path& currentDir, const std::string& fileName) {
+    fs::path filePath = currentDir / fileName;
+    std::error_code ec;
+    if (!fs::exists(filePath, ec) || !fs::is_regular_file(filePath, ec)) {
+        return "";
+    }
+
+    auto ftime = fs::last_write_time(filePath, ec);
+    if (ec) return "";
+
+    // Chuyển file_time_type sang system_clock time_point
+    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now()
+    );
+    std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
+
+    std::tm gmt;
+    gmtime_s(&gmt, &tt); // Lấy giờ UTC chuẩn ISO FTP
+
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y%m%d%H%M%S", &gmt);
+    return std::string(buf);
 }

@@ -25,4 +25,6 @@ public:
     // Kiểm tra file có tồn tại để truyền nhận dữ liệu hay không (dành cho STOR/RETR)
     static bool fileExists(const fs::path& currentDir, const std::string& fileName);
     static uintmax_t getFileSize(const fs::path& currentDir, const std::string& fileName);
+
+    static std::string getLastModifiedTime(const fs::path& currentDir, const std::string& fileName);
 };

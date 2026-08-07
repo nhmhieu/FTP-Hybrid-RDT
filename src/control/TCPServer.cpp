@@ -272,7 +272,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 }
                 break;
 
-            
+
             case FTPCommand::SIZE: {
                 if (session.getAuthState() != AuthState::AUTHENTICATED) {
                     response = "530 Not logged in.\r\n";
@@ -292,7 +292,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 break;
             }
 
-                            
+
             case FTPCommand::DELE: {
                 if (session.getAuthState() != AuthState::AUTHENTICATED) {
                     response = "530 Not logged in.\r\n";
@@ -313,7 +313,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 break;
             }
 
-                            
+
             case FTPCommand::NLST: {
                 if (session.getAuthState() != AuthState::AUTHENTICATED) {
                     response = "530 Not logged in.\r\n";
@@ -340,7 +340,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 break;
             }
 
-             
+
             case FTPCommand::RNFR: {
                 if (session.getAuthState() != AuthState::AUTHENTICATED) {
                     response = "530 Not logged in.\r\n";
@@ -363,7 +363,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 break;
             }
 
-            
+
             case FTPCommand::RNTO: {
                 if (session.getAuthState() != AuthState::AUTHENTICATED) {
                     response = "530 Not logged in.\r\n";
@@ -394,7 +394,82 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 session.clearRenameFrom(); // Reset trạng thái rename
                 break;
             }
+                                 // === LỆNH 1: MDTM (Lấy thời điểm sửa đổi file) ===
+            case FTPCommand::MDTM: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
+                }
 
+                std::string mtime = FileSystem::getLastModifiedTime(session.getCurrentDir(), cmd.arg);
+                if (!mtime.empty()) {
+                    response = "213 " + mtime + "\r\n";
+                }
+                else {
+                    response = "550 File not found.\r\n";
+                }
+                break;
+            }
+
+                                 // === LỆNH 2: STAT (Trạng thái phiên làm việc hoặc đường dẫn) ===
+            case FTPCommand::STAT: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+
+                if (cmd.arg.empty()) {
+                    // Trả về thông tin trạng thái Server & Phiên kết nối hiện tại
+                    std::string endpointInfo = session.hasDataEndpoint()
+                        ? (session.getDataIp() + ":" + std::to_string(session.getDataPort()))
+                        : "Not set";
+
+                    response = "211-Hybrid FTP Server Status:\r\n"
+                        " Connected User: " + session.getUsername() + "\r\n"
+                        " Working Dir: " + session.getCurrentDir().generic_string() + "\r\n"
+                        " UDP Data Endpoint: " + endpointInfo + "\r\n"
+                        "211 End of status.\r\n";
+                }
+                else {
+                    // Trả về danh sách file qua kênh control TCP (không dùng kênh data)
+                    fs::path targetPath = session.getCurrentDir() / cmd.arg;
+                    std::string listing = FileSystem::getDirectoryListing(targetPath);
+                    if (!listing.empty()) {
+                        response = "213-Status follows:\r\n" + listing + "213 End of status.\r\n";
+                    }
+                    else {
+                        response = "550 Could not get status for specified path.\r\n";
+                    }
+                }
+                break;
+            }
+
+                                 // === LỆNH 3: HELP (Trợ giúp sử dụng lệnh) ===
+            case FTPCommand::HELP: {
+                if (cmd.arg.empty()) {
+                    response = "214-Supported commands:\r\n"
+                        " USER PASS QUIT NOOP PWD CWD CDUP MKD RMD LIST NLST\r\n"
+                        " SIZE DELE RNFR RNTO PORT STOR RETR MDTM STAT HELP\r\n"
+                        "214 Help OK.\r\n";
+                }
+                else {
+                    std::string argUpper = cmd.arg;
+                    std::transform(argUpper.begin(), argUpper.end(), argUpper.begin(), ::toupper);
+
+                    if (argUpper == "USER") response = "214 Syntax: USER <username>\r\n";
+                    else if (argUpper == "PASS") response = "214 Syntax: PASS <password>\r\n";
+                    else if (argUpper == "MDTM") response = "214 Syntax: MDTM <filename> -> Returns YYYYMMDDhhmmss\r\n";
+                    else if (argUpper == "STAT") response = "214 Syntax: STAT [path]\r\n";
+                    else if (argUpper == "STOR") response = "214 Syntax: STOR <filename> (UDP Upload)\r\n";
+                    else if (argUpper == "RETR") response = "214 Syntax: RETR <filename> (UDP Download)\r\n";
+                    else response = "214 Command " + argUpper + " is supported.\r\n";
+                }
+                break;
+            }
             default:
                 response = "500 Unknown command.\r\n";
                 break;
@@ -405,3 +480,4 @@ void TCPServer::handleClient(SOCKET clientSocket) {
     }
 
     closesocket(clientSocket);
+}
