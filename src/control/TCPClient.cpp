@@ -245,8 +245,6 @@ bool TCPClient::setTransferMode(const std::string& mode) {
 bool TCPClient::uploadFile(
     const std::string& localFilePath,
     const std::string& remoteFileName,
-    const std::string& serverIP,
-    int udpPort,
     const std::string& commandName
 ) {
     // 1. TCP connection must exist
@@ -278,6 +276,11 @@ bool TCPClient::uploadFile(
             << "[STOR] Remote filename is empty."
             << std::endl;
 
+        return false;
+    }
+
+    if (!passiveMode && !enterPassiveMode()) {
+        std::cerr << "[STOR] Cannot negotiate a passive UDP endpoint." << std::endl;
         return false;
     }
 
@@ -332,9 +335,9 @@ bool TCPClient::uploadFile(
     // 6. Send actual file through Reliable UDP
     std::cout
         << "[STOR] Sending file over UDP to "
-        << serverIP
+        << passiveIP
         << ":"
-        << udpPort
+        << passivePort
         << std::endl;
 
     fs::path sendPath = localPath;
@@ -351,8 +354,8 @@ bool TCPClient::uploadFile(
             : Representation::encodeRle(sendPath, modeTemp);
         if (!encoded) return false; sendPath = modeTemp;
     }
-    const std::string uploadIP = passiveMode ? passiveIP : serverIP;
-    const int uploadPort = passiveMode ? passivePort : udpPort;
+    const std::string uploadIP = passiveIP;
+    const int uploadPort = passivePort;
     bool udpSuccess =
         UDPData::sendFile(
             sendPath.string(),

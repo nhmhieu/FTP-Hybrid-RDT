@@ -20,10 +20,6 @@
 #include <atomic>
 
 namespace fs = std::filesystem;
-namespace {
-    constexpr int SERVER_STOR_UDP_PORT = 8081; //Tạm khai báo port UDP cho STOR
-}
-
 #pragma comment(lib, "Ws2_32.lib")
 
 TCPServer::TCPServer(int serverPort) : port(serverPort), listenSocket(INVALID_SOCKET) {}
@@ -738,6 +734,12 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     break;
                 }
 
+                if (session.getDataMode() != DataMode::PASSIVE ||
+                    session.getPassiveSocket() == INVALID_SOCKET) {
+                    response = "425 Use PASV before upload.\r\n";
+                    break;
+                }
+
                 fs::path requestedFile(cmd.arg);
 
                 if (requestedFile.is_absolute() ||
@@ -762,18 +764,14 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     return;
                 }
 
+                const int receivePort = session.getDataPort();
                 std::cout
                     << "[STOR] Receiving file: "
                     << savePath.string()
                     << " on UDP port "
-                    << SERVER_STOR_UDP_PORT
+                    << receivePort
                     << std::endl;
-
-                int receivePort = SERVER_STOR_UDP_PORT;
-                if (session.getDataMode() == DataMode::PASSIVE) {
-                    receivePort = session.getDataPort();
-                    session.closePassiveSocket();
-                }
+                session.closePassiveSocket();
                 const TransferMode storedMode = session.getTransferMode();
                 const TransferType storedType = session.getTransferType();
                 if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();

@@ -38,8 +38,6 @@ public:
     bool uploadFile(
         const std::string& localFilePath,
         const std::string& remoteFileName,
-        const std::string& serverIP,
-        int udpPort = 8081,
         const std::string& commandName = "STOR"
     );
 

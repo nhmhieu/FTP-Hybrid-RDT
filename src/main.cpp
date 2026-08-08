@@ -53,7 +53,6 @@ int runClient(
     const std::string& serverIP,
     int serverPort
 ) {
-    constexpr int SERVER_STOR_UDP_PORT = 8081;
     constexpr int CLIENT_RETR_UDP_PORT = 8082;
 
     TCPClient client;
@@ -167,8 +166,6 @@ int runClient(
                 client.uploadFile(
                     localFilePath,
                     remoteFileName,
-                    serverIP,
-                    SERVER_STOR_UDP_PORT,
                     command
                 );
 
