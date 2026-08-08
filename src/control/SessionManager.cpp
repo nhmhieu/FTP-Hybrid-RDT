@@ -9,6 +9,7 @@ ClientSession::ClientSession(SOCKET sock)
       hasEndpoint(false),
       dataMode(DataMode::NONE),
       passiveSocket(INVALID_SOCKET),
+      transferType(TransferType::BINARY),
       renameFromPath("") {
 }
 
@@ -96,6 +97,8 @@ void ClientSession::closePassiveSocket() {
         passiveSocket = INVALID_SOCKET;
     }
 }
+TransferType ClientSession::getTransferType() const { return transferType; }
+void ClientSession::setTransferType(TransferType type) { transferType = type; }
 
 
 // =========================

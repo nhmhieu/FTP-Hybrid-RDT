@@ -5,6 +5,7 @@
 #include "common/ftp_api.h"
 #include "common/protocol.h"
 #include "common/checksum.h"
+#include "common/representation.h"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -533,6 +534,19 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 break;
             }
 
+            case FTPCommand::TYPE: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                } else if (cmd.arg == "I" || cmd.arg == "i") {
+                    session.setTransferType(TransferType::BINARY);
+                    response = "200 Type set to I.\r\n";
+                } else if (cmd.arg == "A" || cmd.arg == "a") {
+                    session.setTransferType(TransferType::ASCII);
+                    response = "200 Type set to A.\r\n";
+                } else response = "504 Unsupported TYPE.\r\n";
+                break;
+            }
+
             // =========================
             // RETR - active UDP download
             // =========================
@@ -608,8 +622,18 @@ void TCPServer::handleClient(SOCKET clientSocket) {
 
                 std::cout << "[RETR] Sending " << filePath.string() << " to "
                           << destinationIP << ":" << destinationPort << std::endl;
-                const bool success = UDPData::sendFile(
-                    filePath.string(), destinationIP, destinationPort);
+                fs::path sendPath = filePath;
+                fs::path asciiTemp;
+                bool prepared = true;
+                if (session.getTransferType() == TransferType::ASCII) {
+                    asciiTemp = fs::temp_directory_path() /
+                        ("hybrid_ftp_ascii_" + std::to_string(reinterpret_cast<std::uintptr_t>(&session)) + ".tmp");
+                    prepared = Representation::toAsciiWire(filePath, asciiTemp);
+                    sendPath = asciiTemp;
+                }
+                const bool success = prepared && UDPData::sendFile(
+                    sendPath.string(), destinationIP, destinationPort);
+                if (!asciiTemp.empty()) { std::error_code cleanup; fs::remove(asciiTemp, cleanup); }
                 if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();
                 response = success
                     ? "226 Transfer complete.\r\n"
@@ -678,6 +702,9 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     );
                 if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();
 
+                if (success && session.getTransferType() == TransferType::ASCII) {
+                    success = Representation::fromAsciiWire(savePath);
+                }
                 if (success) {
                     response =
                         "226 Transfer complete.\r\n";

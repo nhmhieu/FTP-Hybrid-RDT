@@ -1,5 +1,6 @@
 #include "control/TCPClient.h"
 #include "common/ftp_api.h"
+#include "common/representation.h"
 
 #include <iostream>
 #include <filesystem>
@@ -18,7 +19,7 @@ namespace fs = std::filesystem;
 // ========================================
 TCPClient::TCPClient()
     : clientSocket(INVALID_SOCKET),
-      isConnected(false), passiveMode(false), passivePort(0) {
+      isConnected(false), passiveMode(false), passivePort(0), asciiType(false) {
 
     WSADATA wsaData;
 
@@ -208,6 +209,16 @@ bool TCPClient::enterPassiveMode() {
     return passiveMode;
 }
 
+bool TCPClient::setTransferType(const std::string& type) {
+    if (type != "A" && type != "a" && type != "I" && type != "i") return false;
+    if (!sendData("TYPE " + type + "\r\n")) return false;
+    const std::string response = receiveData();
+    std::cout << response;
+    if (response.rfind("200", 0) != 0) return false;
+    asciiType = type == "A" || type == "a";
+    return true;
+}
+
 // ========================================
 // STOR - Upload file through UDP
 // ========================================
@@ -305,14 +316,22 @@ bool TCPClient::uploadFile(
         << udpPort
         << std::endl;
 
+    fs::path sendPath = localPath;
+    fs::path asciiTemp;
+    if (asciiType) {
+        asciiTemp = fs::temp_directory_path() / "hybrid_ftp_client_ascii.tmp";
+        if (!Representation::toAsciiWire(localPath, asciiTemp)) return false;
+        sendPath = asciiTemp;
+    }
     const std::string uploadIP = passiveMode ? passiveIP : serverIP;
     const int uploadPort = passiveMode ? passivePort : udpPort;
     bool udpSuccess =
         UDPData::sendFile(
-            localFilePath,
+            sendPath.string(),
             uploadIP,
             uploadPort
         );
+    if (!asciiTemp.empty()) { std::error_code cleanup; fs::remove(asciiTemp, cleanup); }
     passiveMode = false;
 
     if (!udpSuccess) {
@@ -453,5 +472,6 @@ bool TCPClient::downloadFile(
     passiveMode = false;
     response = receiveData();
     std::cout << response;
+    if (receiveSuccess && asciiType) receiveSuccess = Representation::fromAsciiWire(localFilePath);
     return receiveSuccess && response.rfind("226", 0) == 0;
 }

@@ -14,6 +14,7 @@ private:
     bool passiveMode;
     std::string passiveIP;
     int passivePort;
+    bool asciiType;
 
 public:
     TCPClient();
@@ -28,6 +29,7 @@ public:
     // Nhận phản hồi từ Server
     std::string receiveData();
     bool enterPassiveMode();
+    bool setTransferType(const std::string& type);
 
     // Upload file lên Server
     bool uploadFile(

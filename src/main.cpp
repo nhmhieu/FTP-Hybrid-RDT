@@ -123,6 +123,14 @@ int runClient(
             continue;
         }
 
+        if (command == "TYPE") {
+            std::string type;
+            iss >> type;
+            std::cout << (client.setTransferType(type) ? "[CLIENT] Transfer type updated.\n" :
+                "[CLIENT] TYPE failed.\n");
+            continue;
+        }
+
         if (command == "STOR") {
             std::string localFilePath;
 

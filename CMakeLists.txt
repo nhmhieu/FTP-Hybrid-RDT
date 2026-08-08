@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(COMMON_SOURCES
     src/common/checksum.cpp
     src/common/ftp_api.cpp
+    src/common/representation.cpp
 )
 
 set(UDP_SOURCES
