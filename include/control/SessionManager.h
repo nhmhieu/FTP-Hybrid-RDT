@@ -12,6 +12,8 @@ enum class AuthState {
     AUTHENTICATED
 };
 
+enum class DataMode { NONE, ACTIVE, PASSIVE };
+
 class ClientSession {
 private:
     SOCKET controlSocket;
@@ -24,11 +26,14 @@ private:
     std::string dataIP;
     int dataPort;
     bool hasEndpoint;
+    DataMode dataMode;
+    SOCKET passiveSocket;
 
     std::string renameFromPath;
 
 public:
     ClientSession(SOCKET sock);
+    ~ClientSession();
 
     // Authentication
     void setUsername(const std::string& user);
@@ -51,6 +56,10 @@ public:
     int getDataPort() const;
     bool hasDataEndpoint() const;
     void clearDataEndpoint();
+    DataMode getDataMode() const;
+    void setPassiveEndpoint(const std::string& ip, int port, SOCKET socket);
+    SOCKET getPassiveSocket() const;
+    void closePassiveSocket();
 
     // Rename state
     void setRenameFrom(const std::string& path);

@@ -117,6 +117,12 @@ int runClient(
         std::string command;
         iss >> command;
 
+        if (command == "PASV") {
+            std::cout << (client.enterPassiveMode() ? "[CLIENT] Passive mode selected.\n" :
+                "[CLIENT] PASV failed.\n");
+            continue;
+        }
+
         if (command == "STOR") {
             std::string localFilePath;
 

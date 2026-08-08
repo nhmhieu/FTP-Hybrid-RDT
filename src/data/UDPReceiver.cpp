@@ -5,6 +5,7 @@
 #include <array>
 #include <fstream>
 #include <iostream>
+#include <ws2tcpip.h>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -64,7 +65,11 @@ bool UDPReceiver::receiveFile(
     localAddr.sin_port = htons(static_cast<u_short>(listenPort));
     localAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(
+    sockaddr_in boundAddr{};
+    int boundLength = sizeof(boundAddr);
+    const bool alreadyBound = getsockname(sock, reinterpret_cast<sockaddr*>(&boundAddr),
+        &boundLength) == 0 && ntohs(boundAddr.sin_port) != 0;
+    if (!alreadyBound && bind(
         sock,
         reinterpret_cast<sockaddr*>(&localAddr),
         sizeof(localAddr)) == SOCKET_ERROR) {
@@ -192,6 +197,47 @@ bool UDPReceiver::receiveFile(
 
     std::cerr << "[UDP Receiver] Receiver timed out. File transfer aborted.\n";
     return false;
+}
+
+bool UDPReceiver::receivePassiveFile(const std::string& savePath, int listenPort,
+    const std::string& serverIP, int serverPort, std::atomic<int>* readyState) {
+    if (!isReady() || listenPort < 0 || listenPort > 65535 ||
+        serverPort <= 0 || serverPort > 65535) {
+        if (readyState) readyState->store(-1);
+        return false;
+    }
+    sockaddr_in local{};
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = htonl(INADDR_ANY);
+    local.sin_port = htons(static_cast<u_short>(listenPort));
+    if (bind(sock, reinterpret_cast<sockaddr*>(&local), sizeof(local)) == SOCKET_ERROR) {
+        if (readyState) readyState->store(-1);
+        return false;
+    }
+    sockaddr_in server{};
+    server.sin_family = AF_INET;
+    server.sin_port = htons(static_cast<u_short>(serverPort));
+    if (inet_pton(AF_INET, serverIP.c_str(), &server.sin_addr) != 1) {
+        if (readyState) readyState->store(-1);
+        return false;
+    }
+    udp_header_t registration{};
+    registration.magic = htons(MAGIC_NUMBER);
+    registration.flags = FLAG_ACK;
+    registration.checksum = htons(calculate_checksum(
+        reinterpret_cast<const std::uint8_t*>(&registration), sizeof(registration)));
+    if (sendto(sock, reinterpret_cast<const char*>(&registration), sizeof(registration), 0,
+        reinterpret_cast<const sockaddr*>(&server), sizeof(server)) == SOCKET_ERROR) {
+        if (readyState) readyState->store(-1);
+        return false;
+    }
+    sockaddr_in actual{};
+    int actualLength = sizeof(actual);
+    if (getsockname(sock, reinterpret_cast<sockaddr*>(&actual), &actualLength) == SOCKET_ERROR) {
+        if (readyState) readyState->store(-1);
+        return false;
+    }
+    return receiveFile(savePath, ntohs(actual.sin_port), readyState);
 }
 
 bool UDPReceiver::sendAck(

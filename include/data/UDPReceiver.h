@@ -36,6 +36,9 @@ public:
         int listenPort,
         std::atomic<int>* readyState = nullptr
     );
+    bool receivePassiveFile(const std::string& savePath, int listenPort,
+        const std::string& serverIP, int serverPort,
+        std::atomic<int>* readyState = nullptr);
 };
 
 #endif

@@ -3,6 +3,8 @@
 #include "control/FileSystem.h"
 #include "control/SessionManager.h"
 #include "common/ftp_api.h"
+#include "common/protocol.h"
+#include "common/checksum.h"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -498,6 +500,39 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 break;
             }
 
+            case FTPCommand::PASV: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+                SOCKET passive = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+                sockaddr_in address{};
+                address.sin_family = AF_INET;
+                address.sin_addr.s_addr = htonl(INADDR_ANY);
+                address.sin_port = 0;
+                if (passive == INVALID_SOCKET || bind(passive,
+                    reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR) {
+                    if (passive != INVALID_SOCKET) closesocket(passive);
+                    response = "425 Cannot open passive data endpoint.\r\n";
+                    break;
+                }
+                int addressLength = sizeof(address);
+                getsockname(passive, reinterpret_cast<sockaddr*>(&address), &addressLength);
+                sockaddr_in controlAddress{};
+                int controlLength = sizeof(controlAddress);
+                getsockname(clientSocket, reinterpret_cast<sockaddr*>(&controlAddress), &controlLength);
+                char ipText[INET_ADDRSTRLEN]{};
+                inet_ntop(AF_INET, &controlAddress.sin_addr, ipText, sizeof(ipText));
+                const int passivePort = ntohs(address.sin_port);
+                session.setPassiveEndpoint(ipText, passivePort, passive);
+                std::string tuple = ipText;
+                std::replace(tuple.begin(), tuple.end(), '.', ',');
+                response = "227 Entering Passive Mode (" + tuple + "," +
+                    std::to_string(passivePort / 256) + "," +
+                    std::to_string(passivePort % 256) + ").\r\n";
+                break;
+            }
+
             // =========================
             // RETR - active UDP download
             // =========================
@@ -532,15 +567,50 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     break;
                 }
 
+                std::string destinationIP = session.getDataIp();
+                int destinationPort = session.getDataPort();
+                if (session.getDataMode() == DataMode::PASSIVE) {
+                    SOCKET registrationSocket = session.getPassiveSocket();
+                    DWORD timeout = 3000;
+                    setsockopt(registrationSocket, SOL_SOCKET, SO_RCVTIMEO,
+                        reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+                    udp_header_t registration{};
+                    sockaddr_in source{};
+                    int sourceLength = sizeof(source);
+                    const int received = recvfrom(registrationSocket,
+                        reinterpret_cast<char*>(&registration), sizeof(registration), 0,
+                        reinterpret_cast<sockaddr*>(&source), &sourceLength);
+                    sockaddr_in controlPeer{};
+                    int peerLength = sizeof(controlPeer);
+                    getpeername(clientSocket, reinterpret_cast<sockaddr*>(&controlPeer), &peerLength);
+                    const bool validRegistration = received == sizeof(registration) &&
+                        ntohs(registration.magic) == MAGIC_NUMBER &&
+                        verify_checksum(reinterpret_cast<const std::uint8_t*>(&registration), sizeof(registration)) &&
+                        registration.flags == FLAG_ACK && ntohs(registration.payloadLen) == 0 &&
+                        ntohl(registration.seq) == 0 && ntohl(registration.ack) == 0 &&
+                        source.sin_addr.s_addr == controlPeer.sin_addr.s_addr;
+                    session.closePassiveSocket();
+                    if (!validRegistration) {
+                        session.clearDataEndpoint();
+                        response = "425 Passive UDP registration timed out or invalid.\r\n";
+                        break;
+                    }
+                    char learnedIP[INET_ADDRSTRLEN]{};
+                    inet_ntop(AF_INET, &source.sin_addr, learnedIP, sizeof(learnedIP));
+                    destinationIP = learnedIP;
+                    destinationPort = ntohs(source.sin_port);
+                }
+
                 if (!sendAll("150 Opening UDP data connection for file download.\r\n")) {
                     closesocket(clientSocket);
                     return;
                 }
 
                 std::cout << "[RETR] Sending " << filePath.string() << " to "
-                          << session.getDataIp() << ":" << session.getDataPort() << std::endl;
+                          << destinationIP << ":" << destinationPort << std::endl;
                 const bool success = UDPData::sendFile(
-                    filePath.string(), session.getDataIp(), session.getDataPort());
+                    filePath.string(), destinationIP, destinationPort);
+                if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();
                 response = success
                     ? "226 Transfer complete.\r\n"
                     : "426 Connection closed; transfer aborted.\r\n";
@@ -596,11 +666,17 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     << SERVER_STOR_UDP_PORT
                     << std::endl;
 
+                int receivePort = SERVER_STOR_UDP_PORT;
+                if (session.getDataMode() == DataMode::PASSIVE) {
+                    receivePort = session.getDataPort();
+                    session.closePassiveSocket();
+                }
                 bool success =
                     UDPData::receiveFile(
                         savePath.string(),
-                        SERVER_STOR_UDP_PORT
+                        receivePort
                     );
+                if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();
 
                 if (success) {
                     response =

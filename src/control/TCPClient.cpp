@@ -7,6 +7,8 @@
 #include <chrono>
 #include <atomic>
 #include <algorithm>
+#include <array>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -16,7 +18,7 @@ namespace fs = std::filesystem;
 // ========================================
 TCPClient::TCPClient()
     : clientSocket(INVALID_SOCKET),
-      isConnected(false) {
+      isConnected(false), passiveMode(false), passivePort(0) {
 
     WSADATA wsaData;
 
@@ -185,6 +187,27 @@ std::string TCPClient::receiveData() {
 }
 
 
+bool TCPClient::enterPassiveMode() {
+    if (!sendData("PASV\r\n")) return false;
+    const std::string response = receiveData();
+    std::cout << response;
+    const auto open = response.find('('), close = response.find(')', open);
+    if (response.rfind("227", 0) != 0 || open == std::string::npos || close == std::string::npos) return false;
+    std::array<int, 6> values{};
+    std::istringstream input(response.substr(open + 1, close - open - 1));
+    std::string token;
+    for (int& value : values) {
+        if (!std::getline(input, token, ',')) return false;
+        try { value = std::stoi(token); } catch (...) { return false; }
+        if (value < 0 || value > 255) return false;
+    }
+    passiveIP = std::to_string(values[0]) + "." + std::to_string(values[1]) + "." +
+        std::to_string(values[2]) + "." + std::to_string(values[3]);
+    passivePort = values[4] * 256 + values[5];
+    passiveMode = passivePort > 0;
+    return passiveMode;
+}
+
 // ========================================
 // STOR - Upload file through UDP
 // ========================================
@@ -282,12 +305,15 @@ bool TCPClient::uploadFile(
         << udpPort
         << std::endl;
 
+    const std::string uploadIP = passiveMode ? passiveIP : serverIP;
+    const int uploadPort = passiveMode ? passivePort : udpPort;
     bool udpSuccess =
         UDPData::sendFile(
             localFilePath,
-            serverIP,
-            udpPort
+            uploadIP,
+            uploadPort
         );
+    passiveMode = false;
 
     if (!udpSuccess) {
         std::cerr
@@ -368,6 +394,7 @@ bool TCPClient::downloadFile(
         return false;
     }
 
+    const bool usePassive = passiveMode;
     const int p1 = udpPort / 256;
     const int p2 = udpPort % 256;
     std::string portAddress = clientIP;
@@ -385,21 +412,21 @@ bool TCPClient::downloadFile(
     }
     std::replace(portAddress.begin(), portAddress.end(), '.', ',');
 
-    if (!sendData("PORT " + portAddress + "," + std::to_string(p1) + "," +
-                  std::to_string(p2) + "\r\n")) {
-        return false;
-    }
-
-    std::string response = receiveData();
-    std::cout << response;
-    if (response.rfind("200", 0) != 0) {
-        return false;
+    std::string response;
+    if (!usePassive) {
+        if (!sendData("PORT " + portAddress + "," + std::to_string(p1) + "," +
+                      std::to_string(p2) + "\r\n")) return false;
+        response = receiveData();
+        std::cout << response;
+        if (response.rfind("200", 0) != 0) return false;
     }
 
     std::atomic<int> receiverState{0};
     bool receiveSuccess = false;
     std::thread receiver([&]() {
-        receiveSuccess = UDPData::receiveFile(localFilePath, udpPort, receiverState);
+        receiveSuccess = usePassive
+            ? UDPData::receivePassiveFile(localFilePath, 0, passiveIP, passivePort, receiverState)
+            : UDPData::receiveFile(localFilePath, udpPort, receiverState);
     });
 
     while (receiverState.load() == 0) {
@@ -423,6 +450,7 @@ bool TCPClient::downloadFile(
     }
 
     receiver.join();
+    passiveMode = false;
     response = receiveData();
     std::cout << response;
     return receiveSuccess && response.rfind("226", 0) == 0;

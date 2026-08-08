@@ -7,8 +7,12 @@ ClientSession::ClientSession(SOCKET sock)
       dataIP(""),
       dataPort(0),
       hasEndpoint(false),
+      dataMode(DataMode::NONE),
+      passiveSocket(INVALID_SOCKET),
       renameFromPath("") {
 }
+
+ClientSession::~ClientSession() { closePassiveSocket(); }
 
 
 // =========================
@@ -56,6 +60,8 @@ void ClientSession::setDataEndpoint(
     dataIP = ip;
     dataPort = port;
     hasEndpoint = true;
+    dataMode = DataMode::ACTIVE;
+    closePassiveSocket();
 }
 
 std::string ClientSession::getDataIp() const {
@@ -74,6 +80,21 @@ void ClientSession::clearDataEndpoint() {
     dataIP = "";
     dataPort = 0;
     hasEndpoint = false;
+    dataMode = DataMode::NONE;
+}
+
+DataMode ClientSession::getDataMode() const { return dataMode; }
+void ClientSession::setPassiveEndpoint(const std::string& ip, int port, SOCKET socket) {
+    closePassiveSocket();
+    dataIP = ip; dataPort = port; hasEndpoint = true;
+    dataMode = DataMode::PASSIVE; passiveSocket = socket;
+}
+SOCKET ClientSession::getPassiveSocket() const { return passiveSocket; }
+void ClientSession::closePassiveSocket() {
+    if (passiveSocket != INVALID_SOCKET) {
+        closesocket(passiveSocket);
+        passiveSocket = INVALID_SOCKET;
+    }
 }
 
 

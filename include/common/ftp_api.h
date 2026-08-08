@@ -11,6 +11,8 @@ namespace UDPData {
     // Hàm nhận file: gọi khi client upload file (STOR)
 	bool receiveFile(const std::string& savePath, int listenPort);
 	bool receiveFile(const std::string& savePath, int listenPort, std::atomic<int>& readyState);
+	bool receivePassiveFile(const std::string& savePath, int listenPort,
+		const std::string& serverIP, int serverPort, std::atomic<int>& readyState);
 }
 
 #endif

@@ -11,6 +11,9 @@ class TCPClient {
 private:
     SOCKET clientSocket;
     bool isConnected;
+    bool passiveMode;
+    std::string passiveIP;
+    int passivePort;
 
 public:
     TCPClient();
@@ -24,6 +27,7 @@ public:
 
     // Nhận phản hồi từ Server
     std::string receiveData();
+    bool enterPassiveMode();
 
     // Upload file lên Server
     bool uploadFile(
