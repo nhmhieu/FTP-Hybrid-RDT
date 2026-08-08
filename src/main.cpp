@@ -136,7 +136,7 @@ int runClient(
             continue;
         }
 
-        if (command == "STOR" || command == "STOU") {
+        if (command == "STOR" || command == "STOU" || command == "APPE") {
             std::string localFilePath;
 
             std::getline(iss, localFilePath);

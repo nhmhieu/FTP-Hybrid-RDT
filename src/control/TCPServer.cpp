@@ -14,6 +14,7 @@
 #include <cctype>
 #include <array>
 #include <sstream>
+#include <fstream>
 
 namespace fs = std::filesystem;
 namespace {
@@ -158,6 +159,8 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             std::string response;
             bool uniqueStore = false;
             std::string uniqueStoreName;
+            bool appendStore = false;
+            fs::path appendTarget;
             if (cmd.command == FTPCommand::STOU) {
                 uniqueStore = true;
                 fs::path requested = cmd.arg.empty() ? fs::path("unique") : fs::path(cmd.arg).filename();
@@ -174,6 +177,15 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 uniqueStoreName = candidate.filename().string();
                 cmd.command = FTPCommand::STOR;
                 cmd.arg = uniqueStoreName;
+            }
+            if (cmd.command == FTPCommand::APPE) {
+                fs::path requested(cmd.arg);
+                if (!cmd.arg.empty() && !requested.is_absolute() && !requested.has_parent_path()) {
+                    appendStore = true;
+                    appendTarget = session.getCurrentDir() / requested.filename();
+                    cmd.command = FTPCommand::STOR;
+                    cmd.arg = ".appe_" + std::to_string(reinterpret_cast<std::uintptr_t>(&session)) + ".tmp";
+                }
             }
 
             switch (cmd.command) {
@@ -714,6 +726,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 // 150 phải gửi ngay trước khi chờ UDP
                 const std::string preliminary = uniqueStore
                     ? "150 FILE: " + uniqueStoreName + "; opening UDP data connection.\r\n"
+                    : appendStore ? "150 Opening UDP data connection for append.\r\n"
                     : "150 Opening UDP data connection for file upload.\r\n";
                 if (!sendAll(preliminary)) {
                     closesocket(clientSocket);
@@ -746,9 +759,18 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 if (success && session.getTransferType() == TransferType::ASCII) {
                     success = Representation::fromAsciiWire(savePath);
                 }
+                if (success && appendStore) {
+                    std::ifstream incoming(savePath, std::ios::binary);
+                    std::ofstream destination(appendTarget, std::ios::binary | std::ios::app);
+                    if (!incoming || !destination) success = false;
+                    else { destination << incoming.rdbuf(); success = destination.good(); }
+                    incoming.close(); destination.close();
+                    std::error_code cleanup; fs::remove(savePath, cleanup);
+                }
                 if (success) {
                     response = uniqueStore
                         ? "226 Transfer complete; FILE: " + uniqueStoreName + ".\r\n"
+                        : appendStore ? "226 Append transfer complete.\r\n"
                         : "226 Transfer complete.\r\n";
 
                     std::cout
@@ -766,6 +788,10 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                         << std::endl;
                 }
 
+                break;
+            }
+            case FTPCommand::APPE: {
+                response = cmd.arg.empty() ? "501 Syntax error in parameters.\r\n" : "550 Invalid file path.\r\n";
                 break;
             }
 // =========================
