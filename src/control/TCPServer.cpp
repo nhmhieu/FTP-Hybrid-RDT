@@ -156,6 +156,25 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 CommandParser::parse(commandLine);
 
             std::string response;
+            bool uniqueStore = false;
+            std::string uniqueStoreName;
+            if (cmd.command == FTPCommand::STOU) {
+                uniqueStore = true;
+                fs::path requested = cmd.arg.empty() ? fs::path("unique") : fs::path(cmd.arg).filename();
+                std::string stem = requested.stem().string();
+                std::string extension = requested.extension().string();
+                if (stem.empty()) stem = "unique";
+                fs::path candidate = session.getCurrentDir() / (stem + extension);
+                unsigned suffix = 1;
+                std::error_code uniqueEc;
+                while (fs::exists(candidate, uniqueEc)) {
+                    candidate = session.getCurrentDir() /
+                        (stem + "_" + std::to_string(suffix++) + extension);
+                }
+                uniqueStoreName = candidate.filename().string();
+                cmd.command = FTPCommand::STOR;
+                cmd.arg = uniqueStoreName;
+            }
 
             switch (cmd.command) {
 
@@ -693,10 +712,10 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     requestedFile.filename();
 
                 // 150 phải gửi ngay trước khi chờ UDP
-                if (!sendAll(
-                    "150 Opening UDP data connection "
-                    "for file upload.\r\n"
-                )) {
+                const std::string preliminary = uniqueStore
+                    ? "150 FILE: " + uniqueStoreName + "; opening UDP data connection.\r\n"
+                    : "150 Opening UDP data connection for file upload.\r\n";
+                if (!sendAll(preliminary)) {
                     closesocket(clientSocket);
                     return;
                 }
@@ -728,8 +747,9 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     success = Representation::fromAsciiWire(savePath);
                 }
                 if (success) {
-                    response =
-                        "226 Transfer complete.\r\n";
+                    response = uniqueStore
+                        ? "226 Transfer complete; FILE: " + uniqueStoreName + ".\r\n"
+                        : "226 Transfer complete.\r\n";
 
                     std::cout
                         << "[STOR] Upload completed: "

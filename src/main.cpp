@@ -136,7 +136,7 @@ int runClient(
             continue;
         }
 
-        if (command == "STOR") {
+        if (command == "STOR" || command == "STOU") {
             std::string localFilePath;
 
             std::getline(iss, localFilePath);
@@ -150,7 +150,7 @@ int runClient(
 
             if (localFilePath.empty()) {
                 std::cout
-                    << "Usage: STOR <local-file-path>"
+                    << "Usage: " << command << " <local-file-path>"
                     << std::endl;
 
                 continue;
@@ -168,7 +168,8 @@ int runClient(
                     localFilePath,
                     remoteFileName,
                     serverIP,
-                    SERVER_STOR_UDP_PORT
+                    SERVER_STOR_UDP_PORT,
+                    command
                 );
 
             if (success) {

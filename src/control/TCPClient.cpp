@@ -233,7 +233,8 @@ bool TCPClient::uploadFile(
     const std::string& localFilePath,
     const std::string& remoteFileName,
     const std::string& serverIP,
-    int udpPort
+    int udpPort,
+    const std::string& commandName
 ) {
     // 1. TCP connection must exist
     if (!isConnected) {
@@ -269,7 +270,7 @@ bool TCPClient::uploadFile(
 
     // 4. Send STOR command through TCP
     const std::string command =
-        "STOR " +
+        commandName + " " +
         remoteFileName +
         "\r\n";
 
