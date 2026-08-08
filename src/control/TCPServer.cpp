@@ -6,6 +6,7 @@
 #include "common/protocol.h"
 #include "common/checksum.h"
 #include "common/representation.h"
+#include "common/sha256.h"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -792,6 +793,23 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             }
             case FTPCommand::APPE: {
                 response = cmd.arg.empty() ? "501 Syntax error in parameters.\r\n" : "550 Invalid file path.\r\n";
+                break;
+            }
+            case FTPCommand::HASH: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n"; break;
+                }
+                fs::path requested(cmd.arg);
+                if (cmd.arg.empty()) { response = "501 Syntax error in parameters.\r\n"; break; }
+                if (requested.is_absolute() || requested.has_parent_path()) {
+                    response = "550 Invalid file path.\r\n"; break;
+                }
+                const fs::path target = session.getCurrentDir() / requested.filename();
+                std::error_code hashEc;
+                if (!fs::is_regular_file(target, hashEc)) { response = "550 File not found.\r\n"; break; }
+                const std::string digest = Crypto::sha256File(target);
+                response = digest.empty() ? "451 Cannot calculate hash.\r\n"
+                    : "213 SHA256 " + digest + "\r\n";
                 break;
             }
 // =========================

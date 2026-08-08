@@ -10,6 +10,7 @@ set(COMMON_SOURCES
     src/common/checksum.cpp
     src/common/ftp_api.cpp
     src/common/representation.cpp
+    src/common/sha256.cpp
 )
 
 set(UDP_SOURCES
@@ -47,6 +48,6 @@ if(MSVC)
 endif()
 
 if(WIN32)
-    target_link_libraries(udp_test PRIVATE ws2_32)
-    target_link_libraries(hybrid_ftp PRIVATE ws2_32)
+    target_link_libraries(udp_test PRIVATE ws2_32 bcrypt)
+    target_link_libraries(hybrid_ftp PRIVATE ws2_32 bcrypt)
 endif()
