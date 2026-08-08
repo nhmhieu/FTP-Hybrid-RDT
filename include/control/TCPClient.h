@@ -16,6 +16,7 @@ private:
     int passivePort;
     bool asciiType;
     char transferMode;
+    std::string receiveBuffer;
 
 public:
     TCPClient();

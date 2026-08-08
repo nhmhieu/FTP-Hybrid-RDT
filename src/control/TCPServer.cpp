@@ -489,8 +489,9 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 }
                 else {
                     response =
-                        "212 Directory status follows.\r\n" +
-                        FileSystem::getDirectoryListing(target);
+                        "212-Directory status follows.\r\n" +
+                        FileSystem::getDirectoryListing(target) +
+                        "212 End of directory status.\r\n";
                 }
 
                 break;
@@ -850,8 +851,9 @@ case FTPCommand::NLST: {
     }
     else {
         response =
-            "212 Name list follows.\r\n" +
-            nameList;
+            "212-Name list follows.\r\n" +
+            nameList +
+            "212 End of name list.\r\n";
     }
 
     break;

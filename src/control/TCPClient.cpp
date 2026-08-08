@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <sstream>
+#include <cctype>
 
 namespace fs = std::filesystem;
 
@@ -167,24 +168,36 @@ std::string TCPClient::receiveData() {
         return "";
     }
 
-    char buffer[1024] = { 0 };
+    auto readLine = [&]() -> std::string {
+        while (true) {
+            const auto end = receiveBuffer.find("\r\n");
+            if (end != std::string::npos) {
+                std::string line = receiveBuffer.substr(0, end + 2);
+                receiveBuffer.erase(0, end + 2);
+                return line;
+            }
+            char buffer[1024];
+            const int received = recv(clientSocket, buffer, sizeof(buffer), 0);
+            if (received <= 0) return {};
+            receiveBuffer.append(buffer, received);
+        }
+    };
 
-    int bytesReceived =
-        recv(
-            clientSocket,
-            buffer,
-            sizeof(buffer) - 1,
-            0
-        );
-
-    if (bytesReceived > 0) {
-        return std::string(
-            buffer,
-            bytesReceived
-        );
+    std::string first = readLine();
+    if (first.empty()) return {};
+    std::string response = first;
+    if (first.size() >= 4 && std::isdigit(static_cast<unsigned char>(first[0])) &&
+        std::isdigit(static_cast<unsigned char>(first[1])) &&
+        std::isdigit(static_cast<unsigned char>(first[2])) && first[3] == '-') {
+        const std::string terminator = first.substr(0, 3) + " ";
+        while (true) {
+            std::string line = readLine();
+            if (line.empty()) return {};
+            response += line;
+            if (line.rfind(terminator, 0) == 0) break;
+        }
     }
-
-    return "";
+    return response;
 }
 
 
