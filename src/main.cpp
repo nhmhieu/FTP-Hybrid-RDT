@@ -54,6 +54,7 @@ int runClient(
     int serverPort
 ) {
     constexpr int SERVER_STOR_UDP_PORT = 8081;
+    constexpr int CLIENT_RETR_UDP_PORT = 8082;
 
     TCPClient client;
 
@@ -162,6 +163,29 @@ int runClient(
                     << std::endl;
             }
 
+            continue;
+        }
+
+        if (command == "RETR") {
+            std::string remoteFileName;
+            iss >> remoteFileName;
+            if (remoteFileName.empty()) {
+                std::cout << "Usage: RETR <remote-file-name>" << std::endl;
+                continue;
+            }
+
+            const fs::path downloadDir = fs::current_path() / "temp_downloads";
+            std::error_code ec;
+            fs::create_directories(downloadDir, ec);
+            if (ec) {
+                std::cerr << "[-] Cannot create temp_downloads directory." << std::endl;
+                continue;
+            }
+
+            const fs::path localPath = downloadDir / fs::path(remoteFileName).filename();
+            const bool success = client.downloadFile(
+                remoteFileName, localPath.string(), "", CLIENT_RETR_UDP_PORT);
+            std::cout << (success ? "[CLIENT] RETR completed.\n" : "[CLIENT] RETR failed.\n");
             continue;
         }
 

@@ -41,13 +41,19 @@ bool UDPReceiver::isReady() const {
     return winsockStarted && sock != INVALID_SOCKET;
 }
 
-bool UDPReceiver::receiveFile(const std::string& savePath, int listenPort) {
+bool UDPReceiver::receiveFile(
+    const std::string& savePath,
+    int listenPort,
+    std::atomic<int>* readyState
+) {
     if (!isReady()) {
+        if (readyState != nullptr) readyState->store(-1);
         std::cerr << "[UDP Receiver] Socket is not ready.\n";
         return false;
     }
 
     if (listenPort <= 0 || listenPort > 65535) {
+        if (readyState != nullptr) readyState->store(-1);
         std::cerr << "[UDP Receiver] Invalid port.\n";
         return false;
     }
@@ -64,6 +70,7 @@ bool UDPReceiver::receiveFile(const std::string& savePath, int listenPort) {
         sizeof(localAddr)) == SOCKET_ERROR) {
         std::cerr << "[UDP Receiver] Bind failed. Error="
             << WSAGetLastError() << '\n';
+        if (readyState != nullptr) readyState->store(-1);
         return false;
     }
 
@@ -71,7 +78,12 @@ bool UDPReceiver::receiveFile(const std::string& savePath, int listenPort) {
     if (!outFile.is_open()) {
         std::cerr << "[UDP Receiver] Failed to open output file: "
             << savePath << '\n';
+        if (readyState != nullptr) readyState->store(-1);
         return false;
+    }
+
+    if (readyState != nullptr) {
+        readyState->store(1);
     }
 
     // Receiver không chờ vô hạn nếu sender biến mất.

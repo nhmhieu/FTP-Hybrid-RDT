@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <algorithm>
 #include <cctype>
+#include <array>
+#include <sstream>
 
 namespace fs = std::filesystem;
 namespace {
@@ -452,8 +454,52 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 break;
             }
 
+            case FTPCommand::PORT: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) {
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+
+                std::array<int, 6> parts{};
+                std::istringstream input(cmd.arg);
+                std::string token;
+                bool valid = !cmd.arg.empty() &&
+                    std::count(cmd.arg.begin(), cmd.arg.end(), ',') == 5;
+                for (std::size_t i = 0; i < parts.size() && valid; ++i) {
+                    if (!std::getline(input, token, ',') || token.empty()) {
+                        valid = false;
+                        break;
+                    }
+                    try {
+                        std::size_t used = 0;
+                        parts[i] = std::stoi(token, &used);
+                        valid = used == token.size() && parts[i] >= 0 && parts[i] <= 255;
+                    }
+                    catch (...) {
+                        valid = false;
+                    }
+                }
+                if (std::getline(input, token, ',') || !valid) {
+                    response = "501 Invalid PORT syntax.\r\n";
+                    break;
+                }
+
+                const int dataPort = parts[4] * 256 + parts[5];
+                if (dataPort <= 0) {
+                    response = "501 Invalid PORT syntax.\r\n";
+                    break;
+                }
+
+                const std::string dataIP =
+                    std::to_string(parts[0]) + "." + std::to_string(parts[1]) + "." +
+                    std::to_string(parts[2]) + "." + std::to_string(parts[3]);
+                session.setDataEndpoint(dataIP, dataPort);
+                response = "200 PORT command successful.\r\n";
+                break;
+            }
+
             // =========================
-            // RETR - chưa làm
+            // RETR - active UDP download
             // =========================
             case FTPCommand::RETR: {
                 if (session.getAuthState()
@@ -461,11 +507,43 @@ void TCPServer::handleClient(SOCKET clientSocket) {
 
                     response =
                         "530 Not logged in.\r\n";
+                    break;
                 }
-                else {
-                    response =
-                        "502 Command not implemented.\r\n";
+
+                if (cmd.arg.empty()) {
+                    response = "501 Syntax error in parameters.\r\n";
+                    break;
                 }
+
+                fs::path requestedFile(cmd.arg);
+                if (requestedFile.is_absolute() || requestedFile.has_parent_path()) {
+                    response = "550 Invalid file path.\r\n";
+                    break;
+                }
+                if (!session.hasDataEndpoint()) {
+                    response = "425 Use PORT first.\r\n";
+                    break;
+                }
+
+                const fs::path filePath = session.getCurrentDir() / requestedFile.filename();
+                std::error_code ec;
+                if (!fs::is_regular_file(filePath, ec)) {
+                    response = "550 File not found.\r\n";
+                    break;
+                }
+
+                if (!sendAll("150 Opening UDP data connection for file download.\r\n")) {
+                    closesocket(clientSocket);
+                    return;
+                }
+
+                std::cout << "[RETR] Sending " << filePath.string() << " to "
+                          << session.getDataIp() << ":" << session.getDataPort() << std::endl;
+                const bool success = UDPData::sendFile(
+                    filePath.string(), session.getDataIp(), session.getDataPort());
+                response = success
+                    ? "226 Transfer complete.\r\n"
+                    : "426 Connection closed; transfer aborted.\r\n";
 
                 break;
             }

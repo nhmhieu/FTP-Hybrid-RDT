@@ -12,4 +12,9 @@ namespace UDPData {
 		UDPReceiver receiver;
 		return receiver.receiveFile(savePath, listenPort);
 	}
+
+	bool receiveFile(const std::string& savePath, int listenPort, std::atomic<int>& readyState) {
+		UDPReceiver receiver;
+		return receiver.receiveFile(savePath, listenPort, &readyState);
+	}
 }

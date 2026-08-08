@@ -33,6 +33,13 @@ public:
         int udpPort = 8081
     );
 
+    bool downloadFile(
+        const std::string& remoteFileName,
+        const std::string& localFilePath,
+        const std::string& clientIP,
+        int udpPort
+    );
+
     // Ngắt kết nối
     void disconnect();
 };

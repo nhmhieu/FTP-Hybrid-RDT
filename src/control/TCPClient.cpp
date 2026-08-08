@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -353,4 +355,75 @@ void TCPClient::disconnect() {
     }
 
     isConnected = false;
+}
+
+bool TCPClient::downloadFile(
+    const std::string& remoteFileName,
+    const std::string& localFilePath,
+    const std::string& clientIP,
+    int udpPort
+) {
+    if (!isConnected || remoteFileName.empty() || localFilePath.empty() ||
+        udpPort <= 0 || udpPort > 65535) {
+        return false;
+    }
+
+    const int p1 = udpPort / 256;
+    const int p2 = udpPort % 256;
+    std::string portAddress = clientIP;
+    if (portAddress.empty()) {
+        sockaddr_in localAddr{};
+        int localAddrLength = sizeof(localAddr);
+        char localAddressText[INET_ADDRSTRLEN]{};
+        if (getsockname(clientSocket, reinterpret_cast<sockaddr*>(&localAddr),
+                        &localAddrLength) == SOCKET_ERROR ||
+            inet_ntop(AF_INET, &localAddr.sin_addr, localAddressText,
+                      sizeof(localAddressText)) == nullptr) {
+            return false;
+        }
+        portAddress = localAddressText;
+    }
+    std::replace(portAddress.begin(), portAddress.end(), '.', ',');
+
+    if (!sendData("PORT " + portAddress + "," + std::to_string(p1) + "," +
+                  std::to_string(p2) + "\r\n")) {
+        return false;
+    }
+
+    std::string response = receiveData();
+    std::cout << response;
+    if (response.rfind("200", 0) != 0) {
+        return false;
+    }
+
+    std::atomic<int> receiverState{0};
+    bool receiveSuccess = false;
+    std::thread receiver([&]() {
+        receiveSuccess = UDPData::receiveFile(localFilePath, udpPort, receiverState);
+    });
+
+    while (receiverState.load() == 0) {
+        std::this_thread::yield();
+    }
+    if (receiverState.load() < 0) {
+        receiver.join();
+        return false;
+    }
+
+    if (!sendData("RETR " + remoteFileName + "\r\n")) {
+        receiver.join();
+        return false;
+    }
+
+    response = receiveData();
+    std::cout << response;
+    if (response.rfind("150", 0) != 0) {
+        receiver.join();
+        return false;
+    }
+
+    receiver.join();
+    response = receiveData();
+    std::cout << response;
+    return receiveSuccess && response.rfind("226", 0) == 0;
 }

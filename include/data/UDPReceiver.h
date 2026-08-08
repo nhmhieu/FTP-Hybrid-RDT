@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <atomic>
 #include <winsock2.h>
 
 class UDPReceiver {
@@ -30,7 +31,11 @@ public:
     ~UDPReceiver();
 
     bool isReady() const;
-    bool receiveFile(const std::string& savePath, int listenPort);
+    bool receiveFile(
+        const std::string& savePath,
+        int listenPort,
+        std::atomic<int>* readyState = nullptr
+    );
 };
 
 #endif
