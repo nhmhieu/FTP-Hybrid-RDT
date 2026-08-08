@@ -19,7 +19,7 @@ namespace fs = std::filesystem;
 // ========================================
 TCPClient::TCPClient()
     : clientSocket(INVALID_SOCKET),
-      isConnected(false), passiveMode(false), passivePort(0), asciiType(false) {
+      isConnected(false), passiveMode(false), passivePort(0), asciiType(false), transferMode('S') {
 
     WSADATA wsaData;
 
@@ -218,6 +218,13 @@ bool TCPClient::setTransferType(const std::string& type) {
     asciiType = type == "A" || type == "a";
     return true;
 }
+bool TCPClient::setTransferMode(const std::string& mode) {
+    if (mode.size() != 1 || std::string("SsBbCc").find(mode[0]) == std::string::npos) return false;
+    if (!sendData("MODE " + mode + "\r\n")) return false;
+    const std::string response = receiveData(); std::cout << response;
+    if (response.rfind("200", 0) != 0) return false;
+    transferMode = static_cast<char>(std::toupper(static_cast<unsigned char>(mode[0]))); return true;
+}
 
 // ========================================
 // STOR - Upload file through UDP
@@ -323,6 +330,13 @@ bool TCPClient::uploadFile(
         if (!Representation::toAsciiWire(localPath, asciiTemp)) return false;
         sendPath = asciiTemp;
     }
+    fs::path modeTemp;
+    if (transferMode != 'S') {
+        modeTemp = fs::temp_directory_path() / "hybrid_ftp_client_mode.tmp";
+        const bool encoded = transferMode == 'B' ? Representation::encodeBlock(sendPath, modeTemp)
+            : Representation::encodeRle(sendPath, modeTemp);
+        if (!encoded) return false; sendPath = modeTemp;
+    }
     const std::string uploadIP = passiveMode ? passiveIP : serverIP;
     const int uploadPort = passiveMode ? passivePort : udpPort;
     bool udpSuccess =
@@ -332,6 +346,7 @@ bool TCPClient::uploadFile(
             uploadPort
         );
     if (!asciiTemp.empty()) { std::error_code cleanup; fs::remove(asciiTemp, cleanup); }
+    if (!modeTemp.empty()) { std::error_code cleanup; fs::remove(modeTemp, cleanup); }
     passiveMode = false;
 
     if (!udpSuccess) {
@@ -472,6 +487,8 @@ bool TCPClient::downloadFile(
     passiveMode = false;
     response = receiveData();
     std::cout << response;
+    if (receiveSuccess && transferMode == 'B') receiveSuccess = Representation::decodeBlock(localFilePath);
+    else if (receiveSuccess && transferMode == 'C') receiveSuccess = Representation::decodeRle(localFilePath);
     if (receiveSuccess && asciiType) receiveSuccess = Representation::fromAsciiWire(localFilePath);
     return receiveSuccess && response.rfind("226", 0) == 0;
 }

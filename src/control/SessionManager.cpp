@@ -10,6 +10,7 @@ ClientSession::ClientSession(SOCKET sock)
       dataMode(DataMode::NONE),
       passiveSocket(INVALID_SOCKET),
       transferType(TransferType::BINARY),
+      transferMode(TransferMode::STREAM),
       renameFromPath("") {
 }
 
@@ -99,6 +100,8 @@ void ClientSession::closePassiveSocket() {
 }
 TransferType ClientSession::getTransferType() const { return transferType; }
 void ClientSession::setTransferType(TransferType type) { transferType = type; }
+TransferMode ClientSession::getTransferMode() const { return transferMode; }
+void ClientSession::setTransferMode(TransferMode mode) { transferMode = mode; }
 
 
 // =========================

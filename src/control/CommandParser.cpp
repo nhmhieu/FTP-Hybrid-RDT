@@ -45,6 +45,7 @@ ParsedCommand CommandParser::parse(const std::string& rawCmd) {
     else if (cmdStr == "PORT")   result.command = FTPCommand::PORT;
     else if (cmdStr == "PASV")   result.command = FTPCommand::PASV;
     else if (cmdStr == "TYPE")   result.command = FTPCommand::TYPE;
+    else if (cmdStr == "MODE")   result.command = FTPCommand::MODE;
 
 // --- FILE / METADATA COMMANDS ---
     else if (cmdStr == "NLST")   result.command = FTPCommand::NLST;

@@ -546,6 +546,14 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 } else response = "504 Unsupported TYPE.\r\n";
                 break;
             }
+            case FTPCommand::MODE: {
+                if (session.getAuthState() != AuthState::AUTHENTICATED) response = "530 Not logged in.\r\n";
+                else if (cmd.arg == "S" || cmd.arg == "s") { session.setTransferMode(TransferMode::STREAM); response = "200 Mode set to S.\r\n"; }
+                else if (cmd.arg == "B" || cmd.arg == "b") { session.setTransferMode(TransferMode::BLOCK); response = "200 Mode set to B.\r\n"; }
+                else if (cmd.arg == "C" || cmd.arg == "c") { session.setTransferMode(TransferMode::COMPRESSED); response = "200 Mode set to C.\r\n"; }
+                else response = "504 Unsupported MODE.\r\n";
+                break;
+            }
 
             // =========================
             // RETR - active UDP download
@@ -631,9 +639,19 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     prepared = Representation::toAsciiWire(filePath, asciiTemp);
                     sendPath = asciiTemp;
                 }
+                fs::path modeTemp;
+                if (prepared && session.getTransferMode() != TransferMode::STREAM) {
+                    modeTemp = fs::temp_directory_path() /
+                        ("hybrid_ftp_mode_" + std::to_string(reinterpret_cast<std::uintptr_t>(&session)) + ".tmp");
+                    prepared = session.getTransferMode() == TransferMode::BLOCK
+                        ? Representation::encodeBlock(sendPath, modeTemp)
+                        : Representation::encodeRle(sendPath, modeTemp);
+                    sendPath = modeTemp;
+                }
                 const bool success = prepared && UDPData::sendFile(
                     sendPath.string(), destinationIP, destinationPort);
                 if (!asciiTemp.empty()) { std::error_code cleanup; fs::remove(asciiTemp, cleanup); }
+                if (!modeTemp.empty()) { std::error_code cleanup; fs::remove(modeTemp, cleanup); }
                 if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();
                 response = success
                     ? "226 Transfer complete.\r\n"
@@ -702,6 +720,10 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     );
                 if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();
 
+                if (success && session.getTransferMode() == TransferMode::BLOCK)
+                    success = Representation::decodeBlock(savePath);
+                else if (success && session.getTransferMode() == TransferMode::COMPRESSED)
+                    success = Representation::decodeRle(savePath);
                 if (success && session.getTransferType() == TransferType::ASCII) {
                     success = Representation::fromAsciiWire(savePath);
                 }

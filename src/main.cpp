@@ -130,6 +130,11 @@ int runClient(
                 "[CLIENT] TYPE failed.\n");
             continue;
         }
+        if (command == "MODE") {
+            std::string mode; iss >> mode;
+            std::cout << (client.setTransferMode(mode) ? "[CLIENT] Transfer mode updated.\n" : "[CLIENT] MODE failed.\n");
+            continue;
+        }
 
         if (command == "STOR") {
             std::string localFilePath;

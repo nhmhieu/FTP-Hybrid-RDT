@@ -14,6 +14,7 @@ enum class AuthState {
 
 enum class DataMode { NONE, ACTIVE, PASSIVE };
 enum class TransferType { BINARY, ASCII };
+enum class TransferMode { STREAM, BLOCK, COMPRESSED };
 
 class ClientSession {
 private:
@@ -30,6 +31,7 @@ private:
     DataMode dataMode;
     SOCKET passiveSocket;
     TransferType transferType;
+    TransferMode transferMode;
 
     std::string renameFromPath;
 
@@ -64,6 +66,8 @@ public:
     void closePassiveSocket();
     TransferType getTransferType() const;
     void setTransferType(TransferType type);
+    TransferMode getTransferMode() const;
+    void setTransferMode(TransferMode mode);
 
     // Rename state
     void setRenameFrom(const std::string& path);
