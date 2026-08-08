@@ -3,7 +3,8 @@
 ClientSession::ClientSession(SOCKET sock)
     : controlSocket(sock),
       authState(AuthState::UNAUTHENTICATED),
-      currentDir(fs::current_path()),
+      currentDir(fs::weakly_canonical(fs::current_path())),
+      rootDir(fs::weakly_canonical(fs::current_path())),
       dataIP(""),
       dataPort(0),
       hasEndpoint(false),
@@ -84,6 +85,7 @@ void ClientSession::clearDataEndpoint() {
     hasEndpoint = false;
     dataMode = DataMode::NONE;
 }
+const fs::path& ClientSession::getRootDir() const { return rootDir; }
 
 DataMode ClientSession::getDataMode() const { return dataMode; }
 void ClientSession::setPassiveEndpoint(const std::string& ip, int port, SOCKET socket) {

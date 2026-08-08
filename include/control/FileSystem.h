@@ -7,6 +7,9 @@ namespace fs = std::filesystem;
 
 class FileSystem {
 public:
+    static bool resolveWithinRoot(const fs::path& root, const fs::path& current,
+        const std::string& requested, fs::path& resolved);
+    static std::string virtualPath(const fs::path& root, const fs::path& current);
     // Kiểm tra và chuyển thư mục làm việc (CWD)
     static bool changeDirectory(fs::path& currentDir, const std::string& targetPath);
 

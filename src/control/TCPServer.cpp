@@ -165,6 +165,26 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 CommandParser::parse(commandLine);
 
             std::string response;
+            const auto commandHasPath = [](FTPCommand command) {
+                switch (command) {
+                case FTPCommand::CWD: case FTPCommand::MKD: case FTPCommand::RMD:
+                case FTPCommand::LIST: case FTPCommand::NLST: case FTPCommand::STAT:
+                case FTPCommand::SIZE: case FTPCommand::MDTM: case FTPCommand::RETR:
+                case FTPCommand::STOR: case FTPCommand::STOU: case FTPCommand::APPE:
+                case FTPCommand::DELE: case FTPCommand::RNFR: case FTPCommand::RNTO:
+                case FTPCommand::HASH: return true;
+                default: return false;
+                }
+            };
+            if (session.getAuthState() == AuthState::AUTHENTICATED &&
+                commandHasPath(cmd.command) && !cmd.arg.empty()) {
+                fs::path validatedPath;
+                if (!FileSystem::resolveWithinRoot(session.getRootDir(), session.getCurrentDir(),
+                    cmd.arg, validatedPath)) {
+                    sendAll("550 Path escapes FTP root.\r\n");
+                    continue;
+                }
+            }
             bool uniqueStore = false;
             std::string uniqueStoreName;
             bool appendStore = false;
@@ -292,7 +312,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
 
                 response =
                     "257 \"" +
-                    session.getCurrentDir().generic_string() +
+                    FileSystem::virtualPath(session.getRootDir(), session.getCurrentDir()) +
                     "\" is current directory.\r\n";
 
                 break;
@@ -316,19 +336,9 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     break;
                 }
 
-                fs::path targetPath =
-                    fs::path(cmd.arg);
-
-                if (targetPath.is_relative()) {
-                    targetPath =
-                        session.getCurrentDir() /
-                        targetPath;
-                }
-
+                fs::path targetPath;
                 std::error_code ec;
-
-                targetPath =
-                    fs::canonical(targetPath, ec);
+                FileSystem::resolveWithinRoot(session.getRootDir(), session.getCurrentDir(), cmd.arg, targetPath);
 
                 if (!ec &&
                     fs::exists(targetPath) &&
@@ -359,8 +369,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     break;
                 }
 
-                if (session.getCurrentDir()
-                    .has_parent_path()) {
+                if (session.getCurrentDir() != session.getRootDir()) {
 
                     session.setCurrentDir(
                         session.getCurrentDir()
@@ -986,7 +995,7 @@ case FTPCommand::STAT: {
             session.getUsername() +
             "\r\n"
             " Working Directory: " +
-            session.getCurrentDir().generic_string() +
+            FileSystem::virtualPath(session.getRootDir(), session.getCurrentDir()) +
             "\r\n"
             " UDP Data Endpoint: " +
             endpointInfo +

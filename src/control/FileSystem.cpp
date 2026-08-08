@@ -4,6 +4,29 @@
 #include <chrono>
 #include <ctime>
 
+bool FileSystem::resolveWithinRoot(const fs::path& root, const fs::path& current,
+    const std::string& requested, fs::path& resolved) {
+    if (requested.empty()) { resolved = current; return true; }
+    const fs::path input(requested);
+    if (input.is_absolute() || input.has_root_name() || input.has_root_directory()) return false;
+    std::error_code ec;
+    resolved = fs::weakly_canonical(current / input, ec);
+    if (ec) return false;
+    const fs::path relative = fs::relative(resolved, root, ec);
+    if (ec || relative.is_absolute()) return false;
+    for (const auto& component : relative) {
+        if (component == "..") return false;
+    }
+    return true;
+}
+
+std::string FileSystem::virtualPath(const fs::path& root, const fs::path& current) {
+    std::error_code ec;
+    const fs::path relative = fs::relative(current, root, ec);
+    if (ec || relative.empty() || relative == ".") return "/";
+    return "/" + relative.generic_string();
+}
+
 bool FileSystem::changeDirectory(fs::path& currentDir, const std::string& targetPath) {
     if (targetPath.empty()) return false;
 

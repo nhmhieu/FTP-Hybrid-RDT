@@ -24,6 +24,7 @@ private:
     std::string username;
 
     fs::path currentDir;
+    fs::path rootDir;
 
     std::string dataIP;
     int dataPort;
@@ -49,6 +50,7 @@ public:
     // Directory
     fs::path& getCurrentDir();
     void setCurrentDir(const fs::path& path);
+    const fs::path& getRootDir() const;
 
     // UDP endpoint
     void setDataEndpoint(
