@@ -480,34 +480,17 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     break;
                 }
 
+                fs::path target;
+                FileSystem::resolveWithinRoot(session.getRootDir(), session.getCurrentDir(), cmd.arg, target);
                 std::error_code ec;
-                std::string listing;
-
-                for (const auto& entry :
-                     fs::directory_iterator(
-                         session.getCurrentDir(),
-                         ec
-                     )) {
-
-                    listing +=
-                        entry.path()
-                        .filename()
-                        .string();
-
-                    listing +=
-                        entry.is_directory()
-                        ? "/\r\n"
-                        : "\r\n";
-                }
-
-                if (ec) {
+                if (!fs::is_directory(target, ec)) {
                     response =
-                        "550 Cannot list directory.\r\n";
+                        "550 Invalid directory.\r\n";
                 }
                 else {
                     response =
                         "212 Directory status follows.\r\n" +
-                        listing;
+                        FileSystem::getDirectoryListing(target);
                 }
 
                 break;
@@ -838,12 +821,8 @@ case FTPCommand::NLST: {
         break;
     }
 
-    fs::path targetDir =
-        session.getCurrentDir();
-
-    if (!cmd.arg.empty()) {
-        targetDir /= cmd.arg;
-    }
+    fs::path targetDir;
+    FileSystem::resolveWithinRoot(session.getRootDir(), session.getCurrentDir(), cmd.arg, targetDir);
 
     std::error_code ec;
 
@@ -861,10 +840,6 @@ case FTPCommand::NLST: {
 
         nameList +=
             entry.path().filename().string();
-
-        if (entry.is_directory()) {
-            nameList += "/";
-        }
 
         nameList += "\r\n";
     }

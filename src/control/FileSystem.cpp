@@ -3,6 +3,7 @@
 #include <sstream>
 #include <chrono>
 #include <ctime>
+#include <iomanip>
 
 bool FileSystem::resolveWithinRoot(const fs::path& root, const fs::path& current,
     const std::string& requested, fs::path& resolved) {
@@ -80,13 +81,27 @@ std::string FileSystem::getDirectoryListing(const fs::path& currentDir) {
 
     for (const auto& entry : fs::directory_iterator(currentDir, ec)) {
         auto status = entry.status();
+        const auto fileTime = entry.last_write_time(ec);
+        std::string timestamp = "Jan 01 00:00";
+        if (!ec) {
+            const auto systemTime = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                fileTime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+            const std::time_t value = std::chrono::system_clock::to_time_t(systemTime);
+            std::tm local{};
+            if (localtime_s(&local, &value) == 0) {
+                std::ostringstream formatted;
+                formatted << std::put_time(&local, "%b %d %H:%M");
+                timestamp = formatted.str();
+            }
+        }
+        ec.clear();
 
         // Định dạng kiểu Unix ls -l đơn giản: d cho directory, - cho file
         if (fs::is_directory(status)) {
-            ss << "drwxr-xr-x 1 owner group 0 Jan 1 00:00 " << entry.path().filename().string() << "\r\n";
+            ss << "drwxr-xr-x 1 owner group 0 " << timestamp << " " << entry.path().filename().string() << "\r\n";
         }
         else {
-            ss << "-rw-r--r-- 1 owner group " << entry.file_size() << " Jan 1 00:00 " << entry.path().filename().string() << "\r\n";
+            ss << "-rw-r--r-- 1 owner group " << entry.file_size() << " " << timestamp << " " << entry.path().filename().string() << "\r\n";
         }
     }
     return ss.str();
