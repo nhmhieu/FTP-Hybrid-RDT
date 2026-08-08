@@ -43,6 +43,16 @@ ParsedCommand CommandParser::parse(const std::string& rawCmd) {
     else if (cmdStr == "RETR")   result.command = FTPCommand::RETR;
     else if (cmdStr == "STOR")   result.command = FTPCommand::STOR;
 
+// --- FILE / METADATA COMMANDS ---
+    else if (cmdStr == "NLST")   result.command = FTPCommand::NLST;
+    else if (cmdStr == "SIZE")   result.command = FTPCommand::SIZE;
+    else if (cmdStr == "MDTM")   result.command = FTPCommand::MDTM;
+    else if (cmdStr == "STAT")   result.command = FTPCommand::STAT;
+    else if (cmdStr == "DELE")   result.command = FTPCommand::DELE;
+    else if (cmdStr == "RNFR")   result.command = FTPCommand::RNFR;
+    else if (cmdStr == "RNTO")   result.command = FTPCommand::RNTO;
+    else if (cmdStr == "HELP")   result.command = FTPCommand::HELP;
+
     else {
         result.command = FTPCommand::UNKNOWN;
     }

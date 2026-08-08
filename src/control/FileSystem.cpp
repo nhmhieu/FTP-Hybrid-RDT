@@ -1,5 +1,8 @@
 #include "control/FileSystem.h"
+
 #include <sstream>
+#include <chrono>
+#include <ctime>
 
 bool FileSystem::changeDirectory(fs::path& currentDir, const std::string& targetPath) {
     if (targetPath.empty()) return false;
@@ -79,4 +82,59 @@ uintmax_t FileSystem::getFileSize(const fs::path& currentDir, const std::string&
         return fs::file_size(filePath, ec);
     }
     return 0;
+}
+
+std::string FileSystem::getLastModifiedTime(
+    const fs::path& currentDir,
+    const std::string& fileName
+) {
+    fs::path filePath =
+        currentDir / fileName;
+
+    std::error_code ec;
+
+    if (!fs::exists(filePath, ec) ||
+        !fs::is_regular_file(filePath, ec)) {
+        return "";
+    }
+
+    auto fileTime =
+        fs::last_write_time(filePath, ec);
+
+    if (ec) {
+        return "";
+    }
+
+    auto systemTime =
+        std::chrono::time_point_cast<
+            std::chrono::system_clock::duration
+        >(
+            fileTime -
+            fs::file_time_type::clock::now() +
+            std::chrono::system_clock::now()
+        );
+
+    std::time_t time =
+        std::chrono::system_clock::to_time_t(
+            systemTime
+        );
+
+    std::tm utcTime{};
+
+    if (gmtime_s(&utcTime, &time) != 0) {
+        return "";
+    }
+
+    char buffer[32];
+
+    if (std::strftime(
+            buffer,
+            sizeof(buffer),
+            "%Y%m%d%H%M%S",
+            &utcTime
+        ) == 0) {
+        return "";
+    }
+
+    return std::string(buffer);
 }

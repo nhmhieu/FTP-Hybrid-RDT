@@ -1,14 +1,20 @@
 #include "control/SessionManager.h"
 
-// Constructor: Khởi tạo các giá trị ban đầu cho một Client Session mới
 ClientSession::ClientSession(SOCKET sock)
     : controlSocket(sock),
-    authState(AuthState::UNAUTHENTICATED),
-    currentDir(fs::current_path()),
-    dataPort(0) {
+      authState(AuthState::UNAUTHENTICATED),
+      currentDir(fs::current_path()),
+      dataIP(""),
+      dataPort(0),
+      hasEndpoint(false),
+      renameFromPath("") {
 }
 
-// Quản lý Trạng thái Xác thực (Authentication State)
+
+// =========================
+// AUTHENTICATION
+// =========================
+
 AuthState ClientSession::getAuthState() const {
     return authState;
 }
@@ -17,7 +23,6 @@ void ClientSession::setAuthState(AuthState state) {
     authState = state;
 }
 
-// Quản lý Tên đăng nhập (Username)
 std::string ClientSession::getUsername() const {
     return username;
 }
@@ -26,7 +31,11 @@ void ClientSession::setUsername(const std::string& name) {
     username = name;
 }
 
-// Quản lý Thư mục làm việc hiện tại
+
+// =========================
+// CURRENT DIRECTORY
+// =========================
+
 fs::path& ClientSession::getCurrentDir() {
     return currentDir;
 }
@@ -35,17 +44,62 @@ void ClientSession::setCurrentDir(const fs::path& path) {
     currentDir = path;
 }
 
-// Lấy Socket Điều khiển TCP
-SOCKET ClientSession::getControlSocket() const {
-    return controlSocket;
-}
 
-// Quản lý thông tin kênh dữ liệu UDP
-void ClientSession::setDataEndpoint(const std::string& ip, int port) {
+// =========================
+// UDP DATA ENDPOINT
+// =========================
+
+void ClientSession::setDataEndpoint(
+    const std::string& ip,
+    int port
+) {
     dataIP = ip;
     dataPort = port;
+    hasEndpoint = true;
+}
+
+std::string ClientSession::getDataIp() const {
+    return dataIP;
 }
 
 int ClientSession::getDataPort() const {
     return dataPort;
+}
+
+bool ClientSession::hasDataEndpoint() const {
+    return hasEndpoint;
+}
+
+void ClientSession::clearDataEndpoint() {
+    dataIP = "";
+    dataPort = 0;
+    hasEndpoint = false;
+}
+
+
+// =========================
+// RNFR / RNTO STATE
+// =========================
+
+void ClientSession::setRenameFrom(
+    const std::string& path
+) {
+    renameFromPath = path;
+}
+
+std::string ClientSession::getRenameFrom() const {
+    return renameFromPath;
+}
+
+void ClientSession::clearRenameFrom() {
+    renameFromPath = "";
+}
+
+
+// =========================
+// CONTROL SOCKET
+// =========================
+
+SOCKET ClientSession::getControlSocket() const {
+    return controlSocket;
 }
