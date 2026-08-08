@@ -164,6 +164,14 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             ParsedCommand cmd =
                 CommandParser::parse(commandLine);
 
+            const std::size_t commandEnd = commandLine.find_first_of(" \t");
+            std::string commandName = commandLine.substr(0, commandEnd);
+            std::transform(commandName.begin(), commandName.end(), commandName.begin(),
+                [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+            std::cout << "[CONTROL] socket=" << clientSocket << " user="
+                      << (session.getUsername().empty() ? "<anonymous>" : session.getUsername())
+                      << " command=" << commandName << std::endl;
+
             std::string response;
             const auto commandHasPath = [](FTPCommand command) {
                 switch (command) {
@@ -219,6 +227,8 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             switch (cmd.command) {
 
             case FTPCommand::ABOR: {
+                std::cout << "[ABOR] socket=" << clientSocket
+                          << " active=" << transferActive.load() << std::endl;
                 if (!transferActive.load()) response = "225 No transfer in progress.\r\n";
                 else { transferCancel.store(true); response = "226 Abort request accepted.\r\n"; }
                 break;
@@ -701,6 +711,8 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     sendAll(success ? "226 Transfer complete.\r\n"
                                     : "426 Connection closed; transfer aborted.\r\n");
                     transferActive.store(false);
+                    std::cout << "[RETR] " << (success ? "success " : "failed ")
+                              << filePath.string() << std::endl;
                 });
                 response.clear();
 
@@ -785,6 +797,8 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                            : appendStore ? "226 Append transfer complete.\r\n" : "226 Transfer complete.\r\n")
                         : "426 Connection closed; transfer aborted.\r\n";
                     sendAll(finalReply); transferActive.store(false);
+                    std::cout << "[STOR] " << (success ? "success " : "failed ")
+                              << savePath.string() << std::endl;
                 });
                 response.clear();
 
