@@ -45,6 +45,8 @@ output.bin
 output.txt
 temp_uploads/
 temp_downloads/
+client_files/upload.txt
+/upload.txt
 .env
 *.key
 *.pem
