@@ -105,6 +105,8 @@ bool UDPReceiver::receiveFile(
     constexpr int MAX_IDLE_TIMEOUTS = 10;
     int idleTimeouts = 0;
     std::uint64_t totalBytes = 0;
+    bool peerSelected = false;
+    sockaddr_in selectedPeer{};
 
     std::array<std::uint8_t, sizeof(udp_header_t) + UDP_PAYLOAD_MAX> packet{};
 
@@ -141,6 +143,9 @@ bool UDPReceiver::receiveFile(
             std::cout << "[UDP Receiver] Invalid packet received. Ignoring it.\n";
             continue;
         }
+        if (peerSelected && (clientAddr.sin_addr.s_addr != selectedPeer.sin_addr.s_addr ||
+            clientAddr.sin_port != selectedPeer.sin_port)) continue;
+        if (!peerSelected) { selectedPeer = clientAddr; peerSelected = true; }
 
         const auto* header = reinterpret_cast<const udp_header_t*>(packet.data());
         const std::uint32_t seq = ntohl(header->seq);
@@ -293,6 +298,11 @@ bool UDPReceiver::isPacketValid(
     if (len != sizeof(udp_header_t) + payloadLen) {
         return false;
     }
+
+    if (header->reserved != 0 || ntohl(header->ack) != 0) return false;
+    if (header->flags == FLAG_FIN && payloadLen != 0) return false;
+    if (header->flags == FLAG_DATA && payloadLen == 0) return false;
+    if (header->flags != FLAG_DATA && header->flags != FLAG_FIN) return false;
 
     return verify_checksum(packet, len);
 }

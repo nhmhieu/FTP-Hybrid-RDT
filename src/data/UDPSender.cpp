@@ -235,6 +235,12 @@ bool UDPSender::waitForAck(std::uint32_t expectedSeq, bool expectFinAck) {
         if ((header->flags & FLAG_ACK) == 0) {
             continue;
         }
+        const std::uint8_t expectedFlags = static_cast<std::uint8_t>(
+            FLAG_ACK | (expectFinAck ? FLAG_FIN : 0));
+        if (header->flags != expectedFlags || header->reserved != 0 ||
+            ntohl(header->seq) != 0 || ntohs(header->payloadLen) != 0) {
+            continue;
+        }
         if (expectFinAck && (header->flags & FLAG_FIN) == 0) {
             continue;
         }
