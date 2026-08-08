@@ -34,7 +34,8 @@ public:
     bool receiveFile(
         const std::string& savePath,
         int listenPort,
-        std::atomic<int>* readyState = nullptr
+        std::atomic<int>* readyState = nullptr,
+        const std::atomic<bool>* cancel = nullptr
     );
     bool receivePassiveFile(const std::string& savePath, int listenPort,
         const std::string& serverIP, int serverPort,

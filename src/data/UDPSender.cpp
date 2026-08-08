@@ -15,7 +15,7 @@ UDPSender::UDPSender()
     destAddr{},
     timeoutMs(700),
     maxRetries(5),
-    winsockStarted(false) {
+    winsockStarted(false), cancelled(nullptr) {
 
     WSADATA wsaData{};
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -47,8 +47,10 @@ bool UDPSender::isReady() const {
 bool UDPSender::sendFile(
     const std::string& filePath,
     const std::string& destIP,
-    int destPort
+    int destPort,
+    const std::atomic<bool>* cancel
 ) {
+    cancelled = cancel;
     if (!isReady()) {
         std::cerr << "[UDP Sender] Socket is not ready.\n";
         return false;
@@ -79,6 +81,7 @@ bool UDPSender::sendFile(
     std::uint64_t totalBytes = 0;
 
     while (file) {
+        if (cancelled && cancelled->load()) return false;
         file.read(
             reinterpret_cast<char*>(payload.data()),
             static_cast<std::streamsize>(payload.size())
@@ -142,6 +145,7 @@ bool UDPSender::sendPacketAndWaitAck(
     header->checksum = htons(calculate_checksum(packet.data(), packetLen));
 
     for (int attempt = 1; attempt <= maxRetries; ++attempt) {
+        if (cancelled && cancelled->load()) return false;
         const int sent = sendto(
             sock,
             reinterpret_cast<const char*>(packet.data()),

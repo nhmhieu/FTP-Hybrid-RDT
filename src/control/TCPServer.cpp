@@ -16,6 +16,8 @@
 #include <array>
 #include <sstream>
 #include <fstream>
+#include <mutex>
+#include <atomic>
 
 namespace fs = std::filesystem;
 namespace {
@@ -98,10 +100,15 @@ void TCPServer::handleClient(SOCKET clientSocket) {
     ClientSession session(clientSocket);
     std::string pendingData;
     char buffer[1024];
+    std::atomic<bool> transferCancel{false};
+    std::atomic<bool> transferActive{false};
+    std::thread transferThread;
+    std::mutex sendMutex;
 
     // Helper gửi đầy đủ response qua TCP.
     // Đặt local ở đây nên KHÔNG cần khai báo trong TCPServer.h.
-    auto sendAll = [clientSocket](const std::string& message) -> bool {
+    auto sendAll = [clientSocket, &sendMutex](const std::string& message) -> bool {
+        std::lock_guard<std::mutex> lock(sendMutex);
         int totalSent = 0;
         const int messageLength =
             static_cast<int>(message.size());
@@ -191,6 +198,12 @@ void TCPServer::handleClient(SOCKET clientSocket) {
 
             switch (cmd.command) {
 
+            case FTPCommand::ABOR: {
+                if (!transferActive.load()) response = "225 No transfer in progress.\r\n";
+                else { transferCancel.store(true); response = "226 Abort request accepted.\r\n"; }
+                break;
+            }
+
             // =========================
             // USER
             // =========================
@@ -258,6 +271,8 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             // QUIT
             // =========================
             case FTPCommand::QUIT: {
+                transferCancel.store(true);
+                if (transferThread.joinable()) transferThread.join();
                 sendAll("221 Goodbye.\r\n");
                 closesocket(clientSocket);
                 return;
@@ -591,6 +606,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             // RETR - active UDP download
             // =========================
             case FTPCommand::RETR: {
+                if (transferActive.load()) { response = "450 Transfer already in progress.\r\n"; break; }
                 if (session.getAuthState()
                     != AuthState::AUTHENTICATED) {
 
@@ -680,14 +696,20 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                         : Representation::encodeRle(sendPath, modeTemp);
                     sendPath = modeTemp;
                 }
-                const bool success = prepared && UDPData::sendFile(
-                    sendPath.string(), destinationIP, destinationPort);
-                if (!asciiTemp.empty()) { std::error_code cleanup; fs::remove(asciiTemp, cleanup); }
-                if (!modeTemp.empty()) { std::error_code cleanup; fs::remove(modeTemp, cleanup); }
                 if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();
-                response = success
-                    ? "226 Transfer complete.\r\n"
-                    : "426 Connection closed; transfer aborted.\r\n";
+                if (!prepared) { response = "451 Cannot prepare transfer representation.\r\n"; break; }
+                if (transferThread.joinable()) transferThread.join();
+                transferCancel.store(false); transferActive.store(true);
+                transferThread = std::thread([=, &sendAll, &transferCancel, &transferActive]() {
+                    const bool success = UDPData::sendFile(
+                        sendPath.string(), destinationIP, destinationPort, &transferCancel);
+                    if (!asciiTemp.empty()) { std::error_code cleanup; fs::remove(asciiTemp, cleanup); }
+                    if (!modeTemp.empty()) { std::error_code cleanup; fs::remove(modeTemp, cleanup); }
+                    sendAll(success ? "226 Transfer complete.\r\n"
+                                    : "426 Connection closed; transfer aborted.\r\n");
+                    transferActive.store(false);
+                });
+                response.clear();
 
                 break;
             }
@@ -696,6 +718,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             // STOR - Upload bằng UDP
             // =========================
             case FTPCommand::STOR: {
+                if (transferActive.load()) { response = "450 Transfer already in progress.\r\n"; break; }
                 if (session.getAuthState()
                     != AuthState::AUTHENTICATED) {
 
@@ -746,48 +769,31 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     receivePort = session.getDataPort();
                     session.closePassiveSocket();
                 }
-                bool success =
-                    UDPData::receiveFile(
-                        savePath.string(),
-                        receivePort
-                    );
+                const TransferMode storedMode = session.getTransferMode();
+                const TransferType storedType = session.getTransferType();
                 if (session.getDataMode() == DataMode::PASSIVE) session.clearDataEndpoint();
-
-                if (success && session.getTransferMode() == TransferMode::BLOCK)
-                    success = Representation::decodeBlock(savePath);
-                else if (success && session.getTransferMode() == TransferMode::COMPRESSED)
-                    success = Representation::decodeRle(savePath);
-                if (success && session.getTransferType() == TransferType::ASCII) {
-                    success = Representation::fromAsciiWire(savePath);
-                }
-                if (success && appendStore) {
-                    std::ifstream incoming(savePath, std::ios::binary);
-                    std::ofstream destination(appendTarget, std::ios::binary | std::ios::app);
-                    if (!incoming || !destination) success = false;
-                    else { destination << incoming.rdbuf(); success = destination.good(); }
-                    incoming.close(); destination.close();
-                    std::error_code cleanup; fs::remove(savePath, cleanup);
-                }
-                if (success) {
-                    response = uniqueStore
-                        ? "226 Transfer complete; FILE: " + uniqueStoreName + ".\r\n"
-                        : appendStore ? "226 Append transfer complete.\r\n"
-                        : "226 Transfer complete.\r\n";
-
-                    std::cout
-                        << "[STOR] Upload completed: "
-                        << savePath.string()
-                        << std::endl;
-                }
-                else {
-                    response =
-                        "426 Connection closed; "
-                        "transfer aborted.\r\n";
-
-                    std::cout
-                        << "[STOR] Upload failed."
-                        << std::endl;
-                }
+                if (transferThread.joinable()) transferThread.join();
+                transferCancel.store(false); transferActive.store(true);
+                transferThread = std::thread([=, &sendAll, &transferCancel, &transferActive]() {
+                    bool success = UDPData::receiveFile(savePath.string(), receivePort, &transferCancel);
+                    if (success && storedMode == TransferMode::BLOCK) success = Representation::decodeBlock(savePath);
+                    else if (success && storedMode == TransferMode::COMPRESSED) success = Representation::decodeRle(savePath);
+                    if (success && storedType == TransferType::ASCII) success = Representation::fromAsciiWire(savePath);
+                    if (success && appendStore) {
+                        std::ifstream incoming(savePath, std::ios::binary);
+                        std::ofstream destination(appendTarget, std::ios::binary | std::ios::app);
+                        if (!incoming || !destination) success = false;
+                        else { destination << incoming.rdbuf(); success = destination.good(); }
+                        incoming.close(); destination.close(); std::error_code cleanup; fs::remove(savePath, cleanup);
+                    }
+                    if (!success && transferCancel.load()) { std::error_code cleanup; fs::remove(savePath, cleanup); }
+                    const std::string finalReply = success
+                        ? (uniqueStore ? "226 Transfer complete; FILE: " + uniqueStoreName + ".\r\n"
+                           : appendStore ? "226 Append transfer complete.\r\n" : "226 Transfer complete.\r\n")
+                        : "426 Connection closed; transfer aborted.\r\n";
+                    sendAll(finalReply); transferActive.store(false);
+                });
+                response.clear();
 
                 break;
             }
@@ -1300,5 +1306,7 @@ case FTPCommand::HELP: {
 
     } // end recv loop
 
+    transferCancel.store(true);
+    if (transferThread.joinable()) transferThread.join();
     closesocket(clientSocket);
 }

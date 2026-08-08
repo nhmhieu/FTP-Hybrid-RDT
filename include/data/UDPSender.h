@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <winsock2.h>
+#include <atomic>
 
 class UDPSender {
 private:
@@ -12,6 +13,7 @@ private:
     int timeoutMs;
     int maxRetries;
     bool winsockStarted;
+    const std::atomic<bool>* cancelled;
 
     bool sendPacketAndWaitAck(
         const std::uint8_t* payload,
@@ -27,7 +29,8 @@ public:
     ~UDPSender();
 
     bool isReady() const;
-    bool sendFile(const std::string& filePath, const std::string& destIP, int destPort);
+    bool sendFile(const std::string& filePath, const std::string& destIP, int destPort,
+        const std::atomic<bool>* cancel = nullptr);
 };
 
 #endif

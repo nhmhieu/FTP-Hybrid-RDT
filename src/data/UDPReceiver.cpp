@@ -45,7 +45,8 @@ bool UDPReceiver::isReady() const {
 bool UDPReceiver::receiveFile(
     const std::string& savePath,
     int listenPort,
-    std::atomic<int>* readyState
+    std::atomic<int>* readyState,
+    const std::atomic<bool>* cancel
 ) {
     if (!isReady()) {
         if (readyState != nullptr) readyState->store(-1);
@@ -110,6 +111,7 @@ bool UDPReceiver::receiveFile(
     std::cout << "[UDP Receiver] Listening on port " << listenPort << "...\n";
 
     while (idleTimeouts < MAX_IDLE_TIMEOUTS) {
+        if (cancel && cancel->load()) return false;
         sockaddr_in clientAddr{};
         int addrLen = sizeof(clientAddr);
 
@@ -237,7 +239,7 @@ bool UDPReceiver::receivePassiveFile(const std::string& savePath, int listenPort
         if (readyState) readyState->store(-1);
         return false;
     }
-    return receiveFile(savePath, ntohs(actual.sin_port), readyState);
+    return receiveFile(savePath, ntohs(actual.sin_port), readyState, nullptr);
 }
 
 bool UDPReceiver::sendAck(
