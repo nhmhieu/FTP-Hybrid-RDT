@@ -122,6 +122,21 @@ int runClient(
             continue;
         }
 
+        if (command == "PORT") {
+            std::string portArgs;
+            std::getline(iss, portArgs);
+
+            // Xóa khoảng trắng thừa ở đầu chuỗi
+            if (!portArgs.empty() && portArgs.front() == ' ') {
+                portArgs.erase(0, 1);
+            }
+
+            std::cout << (client.enterActiveMode(portArgs) 
+                ? "[CLIENT] Active mode set.\n" 
+                : "[CLIENT] PORT failed.\n");
+            continue;
+        }
+
         if (command == "TYPE") {
             std::string type;
             iss >> type;

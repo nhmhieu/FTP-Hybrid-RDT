@@ -1,6 +1,7 @@
 #include "control/TCPClient.h"
 #include "common/ftp_api.h"
 #include "common/representation.h"
+#include "common/DataMode.h"
 
 #include <iostream>
 #include <filesystem>
@@ -20,7 +21,7 @@ namespace fs = std::filesystem;
 // ========================================
 TCPClient::TCPClient()
     : clientSocket(INVALID_SOCKET),
-      isConnected(false), passiveMode(false), passivePort(0), asciiType(false), transferMode('S') {
+      isConnected(false), dataMode(DataMode :: NONE), passivePort(0), asciiType(false), transferMode('S') {
 
     WSADATA wsaData;
 
@@ -219,7 +220,35 @@ bool TCPClient::enterPassiveMode() {
         std::to_string(values[2]) + "." + std::to_string(values[3]);
     passivePort = values[4] * 256 + values[5];
     passiveMode = passivePort > 0;
+
+    this->dataMode = DataMode :: PASSIVE ; 
     return passiveMode;
+}
+bool TCPClient::enterActiveMode(const std::string& portArgs) {
+    if (portArgs.empty()) {
+        std::cout << "[-] Missing PORT arguments (e.g., PORT 127,0,0,1,31,144)\n";
+        return false;
+    }
+
+    // 1. Gửi lệnh PORT sang Server
+    std::string fullCmd = "PORT " + portArgs + "\r\n";
+    if (!sendData(fullCmd)) {
+        return false;
+    }
+
+    // 2. Nhận phản hồi từ Server
+    std::string response = receiveData();
+    std::cout << response;
+
+    // 3. Nếu Server trả về mã 200 (Command okay) -> Cập nhật dataMode sang ACTIVE
+    if (response.rfind("200", 0) == 0) {
+        this->dataMode = DataMode::ACTIVE; // Hoặc FTP::DataMode::ACTIVE tùy cách bạn đặt enum
+        
+        // (Tùy chọn) Lưu lại IP/Port từ portArgs nếu Upload/Download Engine ở Client cần dùng
+        return true;
+    }
+
+    return false;
 }
 
 bool TCPClient::setTransferType(const std::string& type) {
@@ -242,182 +271,144 @@ bool TCPClient::setTransferMode(const std::string& mode) {
 // ========================================
 // STOR - Upload file through UDP
 // ========================================
+// ========================================
+// STOR / STOU / APPE - Upload file through UDP
+// ========================================
 bool TCPClient::uploadFile(
     const std::string& localFilePath,
     const std::string& remoteFileName,
     const std::string& commandName
 ) {
-    // 1. TCP connection must exist
+    // 1. Kiểm tra kết nối TCP
     if (!isConnected) {
-        std::cerr
-            << "[STOR] TCP client is not connected."
-            << std::endl;
-
+        std::cerr << "[STOR] TCP client is not connected." << std::endl;
         return false;
     }
 
-    // 2. Check local file
+    // 2. Kiểm tra file nguồn ở local
     fs::path localPath(localFilePath);
-
-    if (!fs::exists(localPath) ||
-        !fs::is_regular_file(localPath)) {
-
-        std::cerr
-            << "[STOR] Local file not found: "
-            << localFilePath
-            << std::endl;
-
+    if (!fs::exists(localPath) || !fs::is_regular_file(localPath)) {
+        std::cerr << "[STOR] Local file not found: " << localFilePath << std::endl;
         return false;
     }
 
-    // 3. Check remote filename
+    // 3. Kiểm tra tên file đích ở server
     if (remoteFileName.empty()) {
-        std::cerr
-            << "[STOR] Remote filename is empty."
-            << std::endl;
-
+        std::cerr << "[STOR] Remote filename is empty." << std::endl;
         return false;
     }
 
-    if (!passiveMode && !enterPassiveMode()) {
-        std::cerr << "[STOR] Cannot negotiate a passive UDP endpoint." << std::endl;
-        return false;
+    // 4. Xử lý Chế độ Truyền (DataMode)
+    if (this->dataMode == DataMode::NONE || this->dataMode == DataMode::PASSIVE) {
+        // Nếu chưa thiết lập mode hoặc đang ở Passive Mode, bắt đầu đàm phán PASV
+        if (!passiveMode && !enterPassiveMode()) {
+            std::cerr << "[STOR] Cannot negotiate a passive UDP endpoint." << std::endl;
+            return false;
+        }
+    } else if (this->dataMode == DataMode::ACTIVE) {
+        std::cout << "[STOR] Using ACTIVE mode for transfer." << std::endl;
     }
 
-    // 4. Send STOR command through TCP
-    const std::string command =
-        commandName + " " +
-        remoteFileName +
-        "\r\n";
+    // Xác định IP và Port đích để gửi dữ liệu UDP
+    std::string uploadIP = passiveIP;
+    int uploadPort = passivePort;
 
-    std::cout
-        << "[STOR] Requesting upload: "
-        << remoteFileName
-        << std::endl;
+    if (this->dataMode == DataMode::ACTIVE) {
+        uploadIP = activeIP.empty() ? "127.0.0.1" : activeIP;
+        uploadPort = activePort;
+    }
+
+    // 5. Gửi lệnh upload (STOR/STOU/APPE) qua kênh TCP Control
+    const std::string command = commandName + " " + remoteFileName + "\r\n";
+    std::cout << "[STOR] Requesting upload: " << remoteFileName << std::endl;
 
     if (!sendData(command)) {
-        std::cerr
-            << "[STOR] Failed to send STOR command."
-            << std::endl;
-
+        std::cerr << "[STOR] Failed to send " << commandName << " command." << std::endl;
         return false;
     }
 
-    // 5. Wait for server's preliminary response
-    std::string response =
-        receiveData();
-
+    // 6. Nhận phản hồi sơ bộ từ Server (Mong đợi mã 150)
+    std::string response = receiveData();
     if (response.empty()) {
-        std::cerr
-            << "[STOR] Server did not respond."
-            << std::endl;
-
+        std::cerr << "[STOR] Server did not respond." << std::endl;
         return false;
     }
 
     std::cout << response;
 
-    // Server must reply with 150
     if (response.rfind("150", 0) != 0) {
-        std::cerr
-            << "[STOR] Server is not ready "
-            << "for UDP transfer."
-            << std::endl;
-
+        std::cerr << "[STOR] Server is not ready for UDP transfer." << std::endl;
         return false;
     }
 
-   
-    std::this_thread::sleep_for(
-        std::chrono::milliseconds(100)
-    );
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    // 6. Send actual file through Reliable UDP
-    std::cout
-        << "[STOR] Sending file over UDP to "
-        << passiveIP
-        << ":"
-        << passivePort
-        << std::endl;
-
+    // 7. Chuẩn bị file truyền (Xử lý ASCII / Block / RLE nếu có)
     fs::path sendPath = localPath;
     fs::path asciiTemp;
     if (asciiType) {
         asciiTemp = fs::temp_directory_path() / "hybrid_ftp_client_ascii.tmp";
-        if (!Representation::toAsciiWire(localPath, asciiTemp)) return false;
+        if (!Representation::toAsciiWire(localPath, asciiTemp)) {
+            return false;
+        }
         sendPath = asciiTemp;
     }
+
     fs::path modeTemp;
     if (transferMode != 'S') {
         modeTemp = fs::temp_directory_path() / "hybrid_ftp_client_mode.tmp";
-        const bool encoded = transferMode == 'B' ? Representation::encodeBlock(sendPath, modeTemp)
+        const bool encoded = (transferMode == 'B') 
+            ? Representation::encodeBlock(sendPath, modeTemp)
             : Representation::encodeRle(sendPath, modeTemp);
-        if (!encoded) return false; sendPath = modeTemp;
+        
+        if (!encoded) {
+            if (!asciiTemp.empty()) { std::error_code ec; fs::remove(asciiTemp, ec); }
+            return false;
+        }
+        sendPath = modeTemp;
     }
-    const std::string uploadIP = passiveIP;
-    const int uploadPort = passivePort;
-    bool udpSuccess =
-        UDPData::sendFile(
-            sendPath.string(),
-            uploadIP,
-            uploadPort
-        );
-    if (!asciiTemp.empty()) { std::error_code cleanup; fs::remove(asciiTemp, cleanup); }
-    if (!modeTemp.empty()) { std::error_code cleanup; fs::remove(modeTemp, cleanup); }
+
+    // 8. Truyền dữ liệu qua Reliable UDP
+    std::cout << "[STOR] Sending file over UDP to " << uploadIP << ":" << uploadPort << std::endl;
+
+    bool udpSuccess = UDPData::sendFile(sendPath.string(), uploadIP, uploadPort);
+
+    // Dọn dẹp file tạm
+    if (!asciiTemp.empty()) { std::error_code ec; fs::remove(asciiTemp, ec); }
+    if (!modeTemp.empty()) { std::error_code ec; fs::remove(modeTemp, ec); }
+
+    // Re-set lại trạng thái mode sau khi truyền xong
     passiveMode = false;
+    this->dataMode = DataMode::NONE;
 
     if (!udpSuccess) {
-        std::cerr
-            << "[STOR] UDP file transfer failed."
-            << std::endl;
+        std::cerr << "[STOR] UDP file transfer failed." << std::endl;
 
-        /*
-         * Server may still return 426.
-         * Read it so the TCP control stream
-         * remains synchronized.
-         */
-        std::string finalResponse =
-            receiveData();
-
+        // Đọc nốt response lỗi từ Server (ví dụ mã 426) để đồng bộ luồng TCP
+        std::string finalResponse = receiveData();
         if (!finalResponse.empty()) {
             std::cout << finalResponse;
         }
-
         return false;
     }
 
-    // 7. UDP completed.
-    // Wait for server's final FTP reply.
-    response =
-        receiveData();
-
+    // 9. Chờ phản hồi kết thúc truyền từ Server (Mong đợi mã 226)
+    response = receiveData();
     if (response.empty()) {
-        std::cerr
-            << "[STOR] Missing final server response."
-            << std::endl;
-
+        std::cerr << "[STOR] Missing final server response." << std::endl;
         return false;
     }
 
     std::cout << response;
 
-    // 8. Successful transfer must end with 226
     if (response.rfind("226", 0) == 0) {
-
-        std::cout
-            << "[STOR] Upload successful."
-            << std::endl;
-
+        std::cout << "[STOR] Upload successful." << std::endl;
         return true;
     }
 
-    std::cerr
-        << "[STOR] Upload failed."
-        << std::endl;
-
+    std::cerr << "[STOR] Upload failed." << std::endl;
     return false;
 }
-
 
 // ========================================
 // Disconnect

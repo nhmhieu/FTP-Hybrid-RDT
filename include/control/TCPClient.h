@@ -4,6 +4,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <string>
+#include "common/DataMode.h"
+
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -18,6 +20,12 @@ private:
     char transferMode;
     std::string receiveBuffer;
 
+
+    DataMode dataMode ; 
+    std::string activeIP;
+    int activePort;
+
+
 public:
     TCPClient();
     ~TCPClient();
@@ -31,6 +39,7 @@ public:
     // Nhận phản hồi từ Server
     std::string receiveData();
     bool enterPassiveMode();
+    bool enterActiveMode(const std::string& portArgs);
     bool setTransferType(const std::string& type);
     bool setTransferMode(const std::string& mode);
 

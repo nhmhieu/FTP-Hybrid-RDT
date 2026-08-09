@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <winsock2.h>
 
+#include "common/DataMode.h"
+
 namespace fs = std::filesystem;
 
 enum class AuthState {
@@ -12,7 +14,7 @@ enum class AuthState {
     AUTHENTICATED
 };
 
-enum class DataMode { NONE, ACTIVE, PASSIVE };
+// enum class DataMode { NONE, ACTIVE, PASSIVE };
 enum class TransferType { BINARY, ASCII };
 enum class TransferMode { STREAM, BLOCK, COMPRESSED };
 
