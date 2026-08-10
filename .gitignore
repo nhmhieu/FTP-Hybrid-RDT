@@ -11,6 +11,9 @@
 *.exp
 *.lib
 build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
 Debug/
 Release/
 x64/
