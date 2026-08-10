@@ -13,7 +13,7 @@ class TCPClient {
 private:
     SOCKET clientSocket;
     bool isConnected;
-    bool passiveMode;
+    // bool passiveMode;
     std::string passiveIP;
     int passivePort;
     bool asciiType;
@@ -59,6 +59,7 @@ public:
 
     // Ngắt kết nối
     void disconnect();
+    void cleanupDataChannel() ; 
 };
 
 #endif
