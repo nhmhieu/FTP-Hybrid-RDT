@@ -822,6 +822,85 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             }
 
             // =========================
+            // SIZE
+            // =========================
+            case FTPCommand::SIZE: {
+                if (session.getAuthState()
+                    != AuthState::AUTHENTICATED) {
+
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+
+                if (cmd.arg.empty()) {
+                    response =
+                        "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                if (!FileSystem::fileExists(
+                        session.getCurrentDir(),
+                        cmd.arg
+                    )) {
+
+                    response =
+                        "550 File not found or is a directory.\r\n";
+                    break;
+                }
+
+                uintmax_t fileSize =
+                    FileSystem::getFileSize(
+                        session.getCurrentDir(),
+                        cmd.arg
+                    );
+
+                response =
+                    "213 " +
+                    std::to_string(fileSize) +
+                    "\r\n";
+
+                break;
+            }
+
+
+            // =========================
+            // MDTM
+            // =========================
+            case FTPCommand::MDTM: {
+                if (session.getAuthState()
+                    != AuthState::AUTHENTICATED) {
+
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+
+                if (cmd.arg.empty()) {
+                    response =
+                        "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                std::string modifiedTime =
+                    FileSystem::getLastModifiedTime(
+                        session.getCurrentDir(),
+                        cmd.arg
+                    );
+
+                if (modifiedTime.empty()) {
+                    response =
+                        "550 File not found.\r\n";
+                }
+                else {
+                    response =
+                        "213 " +
+                        modifiedTime +
+                        "\r\n";
+                }
+
+                break;
+            }
+
+            // =========================
             // STAT
             // =========================
             case FTPCommand::STAT: {
@@ -863,6 +942,291 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     break;
                 }
 
+                fs::path targetPath =
+                    session.getCurrentDir() /
+                    cmd.arg;
+
+                std::error_code ec;
+
+                if (!fs::exists(targetPath, ec)) {
+                    response =
+                        "550 Path unavailable.\r\n";
+                    break;
+                }
+
+                // File metadata
+                if (fs::is_regular_file(targetPath, ec)) {
+
+                    uintmax_t size =
+                        fs::file_size(targetPath, ec);
+
+                    if (ec) {
+                        response =
+                            "550 Cannot read file metadata.\r\n";
+                        break;
+                    }
+
+                    std::string modifiedTime =
+                        FileSystem::getLastModifiedTime(
+                            session.getCurrentDir(),
+                            cmd.arg
+                        );
+
+                    response =
+                        "213-File status follows:\r\n"
+                        " Name: " +
+                        targetPath.filename().string() +
+                        "\r\n"
+                        " Type: file\r\n"
+                        " Size: " +
+                        std::to_string(size) +
+                        "\r\n"
+                        " Modified: " +
+                        modifiedTime +
+                        "\r\n"
+                        "213 End of status.\r\n";
+
+                    break;
+                }
+
+                // Directory metadata/listing
+                if (fs::is_directory(targetPath, ec)) {
+
+                    std::string listing =
+                        FileSystem::getDirectoryListing(
+                            targetPath
+                        );
+
+                    response =
+                        "213-Directory status follows:\r\n" +
+                        listing +
+                        "213 End of status.\r\n";
+
+                    break;
+                }
+
+                response =
+                    "550 Unsupported path type.\r\n";
+
+                break;
+            }
+
+
+            // =========================
+            // DELE
+            // =========================
+            case FTPCommand::DELE: {
+                if (session.getAuthState()
+                    != AuthState::AUTHENTICATED) {
+
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+
+                if (cmd.arg.empty()) {
+                    response =
+                        "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                fs::path filePath =
+                    session.getCurrentDir() /
+                    cmd.arg;
+
+                std::error_code ec;
+
+                if (fs::is_regular_file(filePath, ec) &&
+                    fs::remove(filePath, ec)) {
+
+                    response =
+                        "250 File deleted successfully.\r\n";
+                }
+                else {
+                    response =
+                        "550 Delete operation failed.\r\n";
+                }
+
+                break;
+            }
+
+
+            // =========================
+            // RNFR
+            // =========================
+            case FTPCommand::RNFR: {
+                if (session.getAuthState()
+                    != AuthState::AUTHENTICATED) {
+
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+
+                if (cmd.arg.empty()) {
+                    response =
+                        "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                fs::path targetPath =
+                    session.getCurrentDir() /
+                    cmd.arg;
+
+                std::error_code ec;
+
+                if (!fs::exists(targetPath, ec)) {
+                    response =
+                        "550 File or directory does not exist.\r\n";
+                    break;
+                }
+
+                session.setRenameFrom(cmd.arg);
+
+                response =
+                    "350 Requested file action pending RNTO.\r\n";
+
+                break;
+            }
+
+            // =========================
+            // RNTO
+            // =========================
+            case FTPCommand::RNTO: {
+                if (session.getAuthState()
+                    != AuthState::AUTHENTICATED) {
+
+                    response = "530 Not logged in.\r\n";
+                    break;
+                }
+
+                if (session.getRenameFrom().empty()) {
+                    response =
+                        "503 Bad sequence of commands. "
+                        "Use RNFR first.\r\n";
+                    break;
+                }
+
+                if (cmd.arg.empty()) {
+                    response =
+                        "501 Syntax error in parameters.\r\n";
+                    break;
+                }
+
+                fs::path oldPath =
+                    session.getCurrentDir() /
+                    session.getRenameFrom();
+
+                fs::path newPath =
+                    session.getCurrentDir() /
+                    cmd.arg;
+
+                std::error_code ec;
+
+                fs::rename(
+                    oldPath,
+                    newPath,
+                    ec
+                );
+
+                session.clearRenameFrom();
+
+                if (ec) {
+                    response =
+                        "550 Rename operation failed.\r\n";
+                }
+                else {
+                    response =
+                        "250 File renamed successfully.\r\n";
+                }
+
+                break;
+            }
+
+            // =========================
+            // HELP
+            // =========================
+            case FTPCommand::HELP: {
+                if (cmd.arg.empty()) {
+
+                    response =
+                        "214-Supported commands:\r\n"
+                        " USER PASS QUIT NOOP\r\n"
+                        " PWD CWD CDUP MKD RMD LIST NLST\r\n"
+                        " SIZE MDTM STAT DELE RNFR RNTO\r\n"
+                        " TYPE MODE PORT PASV\r\n"
+                        " RETR STOR STOU APPE\r\n"
+                        " HASH ABOR HELP\r\n"
+                        "214 End of HELP.\r\n";
+
+                    break;
+                }
+
+                std::string argUpper =
+                    cmd.arg;
+
+                std::transform(
+                    argUpper.begin(),
+                    argUpper.end(),
+                    argUpper.begin(),
+                    [](unsigned char c) {
+                        return static_cast<char>(
+                            std::toupper(c)
+                        );
+                    }
+                );
+
+                if (argUpper == "NLST") {
+                    response =
+                        "214 Syntax: NLST [path]\r\n";
+                }
+                else if (argUpper == "SIZE") {
+                    response =
+                        "214 Syntax: SIZE <filename>\r\n";
+                }
+                else if (argUpper == "MDTM") {
+                    response =
+                        "214 Syntax: MDTM <filename>\r\n";
+                }
+                else if (argUpper == "STAT") {
+                    response =
+                        "214 Syntax: STAT [path]\r\n";
+                }
+                else if (argUpper == "DELE") {
+                    response =
+                        "214 Syntax: DELE <filename>\r\n";
+                }
+                else if (argUpper == "RNFR") {
+                    response =
+                        "214 Syntax: RNFR <old-name>\r\n";
+                }
+                else if (argUpper == "RNTO") {
+                    response =
+                        "214 Syntax: RNTO <new-name>\r\n";
+                }
+                else if (argUpper == "HELP") {
+                    response =
+                        "214 Syntax: HELP [command]\r\n";
+                }
+                else if (argUpper == "STOR") {
+                    response =
+                        "214 Syntax: STOR <filename>\r\n";
+                }
+                else if (argUpper == "RETR") {
+                    response =
+                        "214 Syntax: RETR <filename>\r\n";
+                }
+                else {
+                    response =
+                        "214 Command " +
+                        argUpper +
+                        " is supported.\r\n";
+                }
+
+                break;
+            }
+
+            // =========================
+            // UNKNOWN
+            // =========================
             default: {
                 response = "502 Command not implemented.\r\n";
                 break;
