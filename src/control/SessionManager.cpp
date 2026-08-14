@@ -3,8 +3,8 @@
 ClientSession::ClientSession(SOCKET sock)
     : controlSocket(sock),
       authState(AuthState::UNAUTHENTICATED),
-      currentDir(fs::weakly_canonical(fs::current_path())),
-      rootDir(fs::weakly_canonical(fs::current_path())),
+      currentDir(fs::weakly_canonical(fs::current_path() / "server_data")),
+      rootDir(fs::weakly_canonical(fs::current_path() / "server_data")),
       dataIP(""),
       dataPort(0),
       hasEndpoint(false),
@@ -36,6 +36,10 @@ std::string ClientSession::getUsername() const {
 
 void ClientSession::setUsername(const std::string& name) {
     username = name;
+}
+
+void ClientSession :: setCurrentRootDir(const fs :: path& path){
+    this->rootDir = path ; 
 }
 
 

@@ -79,4 +79,6 @@ public:
     void clearRenameFrom();
 
     SOCKET getControlSocket() const;
+
+    void setCurrentRootDir(const fs :: path& path) ; 
 };

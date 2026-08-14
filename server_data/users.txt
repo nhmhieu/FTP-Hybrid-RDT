@@ -1,0 +1,2 @@
+admin 123456 server_data/storage/admin
+client_A abcxyz server_data/storage/client_A
