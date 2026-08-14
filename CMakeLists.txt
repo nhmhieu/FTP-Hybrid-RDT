@@ -24,6 +24,7 @@ set(TCP_SOURCES
     src/control/CommandParser.cpp
     src/control/SessionManager.cpp
     src/control/FileSystem.cpp
+    src/control/UserManager.cpp     # <-- THÊM DÒNG NÀY VÀO ĐÂY
 )
 
 add_executable(udp_test
@@ -38,7 +39,7 @@ add_executable(hybrid_ftp
     ${UDP_SOURCES}
     ${TCP_SOURCES}
 )
-
+ 
 target_include_directories(udp_test PRIVATE include)
 target_include_directories(hybrid_ftp PRIVATE include)
 
