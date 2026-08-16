@@ -247,6 +247,8 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             // USER
             // =========================
             case FTPCommand::USER: {
+                session.setAuthState(AuthState :: UNAUTHENTICATED) ;
+
                 if (cmd.arg.empty()) {
                     response = "501 Missing username.\r\n";
                 } else {
@@ -1048,7 +1050,6 @@ void TCPServer::handleClient(SOCKET clientSocket) {
 
                 break;
             }
-
 
             // =========================
             // RNFR
