@@ -247,6 +247,7 @@ void TCPServer::handleClient(SOCKET clientSocket) {
             // USER
             // =========================
             case FTPCommand::USER: {
+                session.setUsername(cmd.arg);
                 session.setAuthState(AuthState :: UNAUTHENTICATED) ;
 
                 if (cmd.arg.empty()) {
@@ -255,7 +256,6 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                     if (!(UserManager::checkIfUserExist(cmd.arg))) {
                         response = "530 User not found.\r\n";
                     } else {
-                        session.setUsername(cmd.arg);
                         session.setAuthState(AuthState::WAITING_FOR_PASS);
                         response = "331 Username OK, need password.\r\n";
                     }
@@ -272,8 +272,8 @@ void TCPServer::handleClient(SOCKET clientSocket) {
                 } else if (UserManager::checkUserPassword(session.getUsername(), cmd.arg)) {
                     session.setAuthState(AuthState::AUTHENTICATED);
                     response = "230 Login successful.\r\n";
-                    session.setCurrentDir(fs::current_path() / "server_data" / "storage" / session.getUsername());
-                    session.setCurrentRootDir(fs::current_path() / "server_data" / "storage" / session.getUsername());
+                    session.setCurrentDir(UserManager :: getUserHomeDir(session.getUsername()));
+                    session.setCurrentRootDir(UserManager :: getUserHomeDir(session.getUsername()));
                 } else {
                     session.setAuthState(AuthState::UNAUTHENTICATED);
                     response = "530 Login incorrect.\r\n";
