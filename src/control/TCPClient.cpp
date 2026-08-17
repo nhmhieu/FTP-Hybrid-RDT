@@ -194,7 +194,7 @@ bool TCPClient::enterActiveMode(const std::string& portArgs) {
         return true;
     }
 
-    return false; // Đã sửa lỗi thiếu return
+    return false; 
 }
 
 bool TCPClient::setTransferType(const std::string& type) {
