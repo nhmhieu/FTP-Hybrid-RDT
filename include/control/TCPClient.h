@@ -4,6 +4,9 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <string>
+#include <thread>
+#include <atomic>
+#include <mutex>
 #include "common/DataMode.h"
 
 
@@ -20,11 +23,14 @@ private:
     char transferMode;
     std::string receiveBuffer;
 
-
-    DataMode dataMode ; 
+    DataMode dataMode; 
     std::string activeIP;
     int activePort;
 
+    std::atomic<bool> transferRunning;
+    std::atomic<bool> transferCancel;
+    std::thread transferThread;
+    std::mutex sendMutex;
 
 public:
     TCPClient();
@@ -43,6 +49,24 @@ public:
     bool setTransferType(const std::string& type);
     bool setTransferMode(const std::string& mode);
 
+    // Quản lý transfer không block CLI
+    bool isTransferRunning() const;
+    bool cancelTransfer();
+    void joinTransfer();
+
+    bool startUploadAsync(
+        const std::string& localFilePath,
+        const std::string& remoteFileName,
+        const std::string& commandName = "STOR"
+    );
+
+    bool startDownloadAsync(
+        const std::string& remoteFileName,
+        const std::string& localFilePath,
+        const std::string& clientIP,
+        int udpPort
+    );
+
     // Upload file lên Server
     bool uploadFile(
         const std::string& localFilePath,
@@ -59,7 +83,7 @@ public:
 
     // Ngắt kết nối
     void disconnect();
-    void cleanupDataChannel() ; 
+    void cleanupDataChannel(); 
 };
 
 #endif

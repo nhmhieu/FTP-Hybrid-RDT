@@ -1,4 +1,4 @@
-﻿#include "data/UDPReceiver.h"
+#include "data/UDPReceiver.h"
 #include "common/checksum.h"
 #include "common/protocol.h"
 
@@ -93,7 +93,7 @@ bool UDPReceiver::receiveFile(
     }
 
     // Receiver không chờ vô hạn nếu sender biến mất.
-    DWORD timeout = 1000;
+    DWORD timeout = 100;
     setsockopt(
         sock,
         SOL_SOCKET,
@@ -102,7 +102,7 @@ bool UDPReceiver::receiveFile(
         sizeof(timeout)
     );
 
-    constexpr int MAX_IDLE_TIMEOUTS = 10;
+    constexpr int MAX_IDLE_TIMEOUTS = 100;
     int idleTimeouts = 0;
     std::uint64_t totalBytes = 0;
     bool peerSelected = false;
@@ -129,6 +129,7 @@ bool UDPReceiver::receiveFile(
         if (recvLen == SOCKET_ERROR) {
             const int error = WSAGetLastError();
             if (error == WSAETIMEDOUT) {
+                if (cancel && cancel->load()) return false;
                 ++idleTimeouts;
                 continue;
             }
@@ -207,7 +208,8 @@ bool UDPReceiver::receiveFile(
 }
 
 bool UDPReceiver::receivePassiveFile(const std::string& savePath, int listenPort,
-    const std::string& serverIP, int serverPort, std::atomic<int>* readyState) {
+    const std::string& serverIP, int serverPort, std::atomic<int>* readyState,
+    const std::atomic<bool>* cancel) {
     if (!isReady() || listenPort < 0 || listenPort > 65535 ||
         serverPort <= 0 || serverPort > 65535) {
         if (readyState) readyState->store(-1);
@@ -244,7 +246,7 @@ bool UDPReceiver::receivePassiveFile(const std::string& savePath, int listenPort
         if (readyState) readyState->store(-1);
         return false;
     }
-    return receiveFile(savePath, ntohs(actual.sin_port), readyState, nullptr);
+    return receiveFile(savePath, ntohs(actual.sin_port), readyState, cancel);
 }
 
 bool UDPReceiver::sendAck(

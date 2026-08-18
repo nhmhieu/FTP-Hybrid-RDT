@@ -27,11 +27,13 @@ void TCPClient::cleanupDataChannel() {
 }
 
 // ========================================
+// ========================================
 // Constructor & Destructor
 // ========================================
 TCPClient::TCPClient()
     : clientSocket(INVALID_SOCKET),
-      isConnected(false), dataMode(DataMode::NONE), passivePort(0), activePort(0), asciiType(false), transferMode('S') {
+      isConnected(false), dataMode(DataMode::NONE), passivePort(0), activePort(0), asciiType(false), transferMode('S'),
+      transferRunning(false), transferCancel(false) {
 
     WSADATA wsaData;
     int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -82,6 +84,7 @@ bool TCPClient::connectToServer(const std::string& ipAddress, int port) {
 // Send & Receive TCP Data
 // ========================================
 bool TCPClient::sendData(const std::string& data) {
+    std::lock_guard<std::mutex> lock(sendMutex);
     if (!isConnected) return false;
 
     int totalSent = 0;
@@ -134,6 +137,58 @@ std::string TCPClient::receiveData() {
 }
 
 // ========================================
+// Async & ABOR Management
+// ========================================
+bool TCPClient::isTransferRunning() const {
+    return transferRunning.load();
+}
+
+void TCPClient::joinTransfer() {
+    if (transferThread.joinable()) {
+        transferThread.join();
+    }
+}
+
+bool TCPClient::cancelTransfer() {
+    if (!transferRunning.load()) {
+        return false;
+    }
+    transferCancel.store(true);
+    std::cout << "[CLIENT] ABOR sent.\n";
+    return sendData("ABOR\r\n");
+}
+
+bool TCPClient::startUploadAsync(
+    const std::string& localFilePath,
+    const std::string& remoteFileName,
+    const std::string& commandName
+) {
+    joinTransfer();
+    transferCancel.store(false);
+    transferRunning.store(true);
+    transferThread = std::thread([this, localFilePath, remoteFileName, commandName]() {
+        uploadFile(localFilePath, remoteFileName, commandName);
+        transferRunning.store(false);
+    });
+    return true;
+}
+
+bool TCPClient::startDownloadAsync(
+    const std::string& remoteFileName,
+    const std::string& localFilePath,
+    const std::string& clientIP,
+    int udpPort
+) {
+    joinTransfer();
+    transferCancel.store(false);
+    transferRunning.store(true);
+    transferThread = std::thread([this, remoteFileName, localFilePath, clientIP, udpPort]() {
+        downloadFile(remoteFileName, localFilePath, clientIP, udpPort);
+        transferRunning.store(false);
+    });
+    return true;
+}
+
 // Mode Settings
 // ========================================
 bool TCPClient::enterPassiveMode() {
@@ -257,7 +312,7 @@ bool TCPClient::uploadFile(
 
     std::string response = receiveData();
     if (response.empty() || response.rfind("150", 0) != 0) {
-        std::cerr << "[STOR] Server is not ready for UDP transfer." << std::endl;
+        std::cerr << "[STOR] Server is not ready for UDP transfer. Response: " << response << std::endl;
         cleanupDataChannel();
         return false;
     }
@@ -295,7 +350,7 @@ bool TCPClient::uploadFile(
 
     // Gửi dữ liệu qua UDP
     std::cout << "[STOR] Sending file over UDP to " << uploadIP << ":" << uploadPort << std::endl;
-    bool udpSuccess = UDPData::sendFile(sendPath.string(), uploadIP, uploadPort);
+    bool udpSuccess = UDPData::sendFile(sendPath.string(), uploadIP, uploadPort, &transferCancel);
 
     // Dọn dẹp file tạm và reset Data Channel
     std::error_code ec;
@@ -303,18 +358,36 @@ bool TCPClient::uploadFile(
     if (!modeTemp.empty()) fs::remove(modeTemp, ec);
     cleanupDataChannel();
 
-    if (!udpSuccess) {
-        std::cerr << "[STOR] UDP file transfer failed." << std::endl;
-        std::string finalResponse = receiveData();
-        if (!finalResponse.empty()) std::cout << finalResponse;
+    const bool wasCancelled = transferCancel.load();
+
+    std::string r1 = receiveData();
+    if (!r1.empty()) std::cout << r1;
+
+    if (wasCancelled || r1.rfind("226", 0) == 0 || r1.rfind("426", 0) == 0) {
+        auto startTime = std::chrono::steady_clock::now();
+        while (std::chrono::steady_clock::now() - startTime < std::chrono::milliseconds(1000)) {
+            u_long bytesAvailable = 0;
+            if (receiveBuffer.find("\r\n") != std::string::npos ||
+                (clientSocket != INVALID_SOCKET && ioctlsocket(clientSocket, FIONREAD, &bytesAvailable) == 0 && bytesAvailable > 0)) {
+                std::string r2 = receiveData();
+                if (!r2.empty()) std::cout << r2;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
+
+    if (wasCancelled) {
+        std::cout << "[CLIENT] STOR aborted." << std::endl;
         return false;
     }
 
-    response = receiveData();
-    if (response.empty()) return false;
-    std::cout << response;
+    if (!udpSuccess) {
+        std::cout << "[CLIENT] STOR failed." << std::endl;
+        return false;
+    }
 
-    return response.rfind("226", 0) == 0;
+    return r1.rfind("226", 0) == 0;
 }
 
 // ========================================
@@ -381,22 +454,23 @@ bool TCPClient::downloadFile(
     bool receiveSuccess = false;
     std::thread receiver([&]() {
         receiveSuccess = usePassive
-            ? UDPData::receivePassiveFile(localFilePath, 0, passiveIP, passivePort, receiverState)
-            : UDPData::receiveFile(localFilePath, actualUdpPort, receiverState);
+            ? UDPData::receivePassiveFile(localFilePath, 0, passiveIP, passivePort, receiverState, &transferCancel)
+            : UDPData::receiveFile(localFilePath, actualUdpPort, receiverState, &transferCancel);
     });
 
     while (receiverState.load() == 0) {
+        if (transferCancel.load()) break;
         std::this_thread::yield();
     }
 
     if (receiverState.load() < 0) {
-        receiver.join();
+        if (receiver.joinable()) receiver.join();
         cleanupDataChannel();
         return false;
     }
 
     if (!sendData("RETR " + remoteFileName + "\r\n")) {
-        receiver.join();
+        if (receiver.joinable()) receiver.join();
         cleanupDataChannel();
         return false;
     }
@@ -404,28 +478,54 @@ bool TCPClient::downloadFile(
     response = receiveData();
     std::cout << response;
     if (response.rfind("150", 0) != 0) {
-        receiver.join();
+        if (receiver.joinable()) receiver.join();
         cleanupDataChannel();
         return false;
     }
 
-    receiver.join();
+    if (receiver.joinable()) receiver.join();
     cleanupDataChannel();
 
-    response = receiveData();
-    std::cout << response;
+    const bool wasCancelled = transferCancel.load();
+
+    std::string r1 = receiveData();
+    if (!r1.empty()) std::cout << r1;
+
+    if (wasCancelled || r1.rfind("226", 0) == 0 || r1.rfind("426", 0) == 0) {
+        auto startTime = std::chrono::steady_clock::now();
+        while (std::chrono::steady_clock::now() - startTime < std::chrono::milliseconds(1000)) {
+            u_long bytesAvailable = 0;
+            if (receiveBuffer.find("\r\n") != std::string::npos ||
+                (clientSocket != INVALID_SOCKET && ioctlsocket(clientSocket, FIONREAD, &bytesAvailable) == 0 && bytesAvailable > 0)) {
+                std::string r2 = receiveData();
+                if (!r2.empty()) std::cout << r2;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
+
+    if (wasCancelled) {
+        std::error_code ec;
+        if (fs::exists(localFilePath)) {
+            fs::remove(localFilePath, ec);
+        }
+        std::cout << "[CLIENT] RETR aborted." << std::endl;
+        return false;
+    }
 
     if (receiveSuccess && transferMode == 'B') receiveSuccess = Representation::decodeBlock(localFilePath);
     else if (receiveSuccess && transferMode == 'C') receiveSuccess = Representation::decodeRle(localFilePath);
     if (receiveSuccess && asciiType) receiveSuccess = Representation::fromAsciiWire(localFilePath);
 
-    return receiveSuccess && response.rfind("226", 0) == 0;
+    return receiveSuccess && r1.rfind("226", 0) == 0;
 }
 
 // ========================================
 // Disconnect
 // ========================================
 void TCPClient::disconnect() {
+    joinTransfer();
     if (clientSocket != INVALID_SOCKET) {
         closesocket(clientSocket);
         clientSocket = INVALID_SOCKET;

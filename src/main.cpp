@@ -116,6 +116,23 @@ int runClient(
         std::string command;
         iss >> command;
 
+        if (command == "ABOR") {
+            if (client.isTransferRunning()) {
+                client.cancelTransfer();
+            } else {
+                if (client.sendData("ABOR\r\n")) {
+                    std::string response = client.receiveData();
+                    if (!response.empty()) std::cout << response;
+                }
+            }
+            continue;
+        }
+
+        if (client.isTransferRunning()) {
+            std::cout << "[CLIENT] Transfer in progress. Use ABOR to cancel.\n";
+            continue;
+        }
+
         if (command == "PASV") {
             std::cout << (client.enterPassiveMode() ? "[CLIENT] Passive mode selected.\n" :
                 "[CLIENT] PASV failed.\n");
@@ -177,23 +194,11 @@ int runClient(
             std::string remoteFileName =
                 localPath.filename().string();
 
-            bool success =
-                client.uploadFile(
-                    localFilePath,
-                    remoteFileName,
-                    command
-                );
-
-            if (success) {
-                std::cout
-                    << "[CLIENT] STOR completed."
-                    << std::endl;
-            }
-            else {
-                std::cout
-                    << "[CLIENT] STOR failed."
-                    << std::endl;
-            }
+            client.startUploadAsync(
+                localFilePath,
+                remoteFileName,
+                command
+            );
 
             continue;
         }
@@ -215,9 +220,8 @@ int runClient(
             }
 
             const fs::path localPath = downloadDir / fs::path(remoteFileName).filename();
-            const bool success = client.downloadFile(
+            client.startDownloadAsync(
                 remoteFileName, localPath.string(), "", CLIENT_RETR_UDP_PORT);
-            std::cout << (success ? "[CLIENT] RETR completed.\n" : "[CLIENT] RETR failed.\n");
             continue;
         }
 

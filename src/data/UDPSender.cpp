@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <chrono>
 #include <ws2tcpip.h>
 
 #pragma comment(lib, "ws2_32.lib")
@@ -178,13 +179,13 @@ bool UDPSender::sendPacketAndWaitAck(
 }
 
 bool UDPSender::waitForAck(std::uint32_t expectedSeq, bool expectFinAck) {
-    DWORD timeout = static_cast<DWORD>(timeoutMs);
+    DWORD pollTimeout = 100; // 100ms socket polling for fast cancellation check
     if (setsockopt(
         sock,
         SOL_SOCKET,
         SO_RCVTIMEO,
-        reinterpret_cast<const char*>(&timeout),
-        sizeof(timeout)) == SOCKET_ERROR) {
+        reinterpret_cast<const char*>(&pollTimeout),
+        sizeof(pollTimeout)) == SOCKET_ERROR) {
         std::cerr << "[UDP Sender] Failed to set receive timeout. Error="
             << WSAGetLastError() << '\n';
         return false;
@@ -193,8 +194,12 @@ bool UDPSender::waitForAck(std::uint32_t expectedSeq, bool expectFinAck) {
     std::array<std::uint8_t, sizeof(udp_header_t)> ackPacket{};
     sockaddr_in fromAddr{};
     int fromLen = sizeof(fromAddr);
+    const auto startTime = std::chrono::steady_clock::now();
+    const auto retransmitDeadline = startTime + std::chrono::milliseconds(timeoutMs);
 
     while (true) {
+        if (cancelled && cancelled->load()) return false;
+        if (std::chrono::steady_clock::now() >= retransmitDeadline) return false;
         const int recvLen = recvfrom(
             sock,
             reinterpret_cast<char*>(ackPacket.data()),
@@ -207,6 +212,10 @@ bool UDPSender::waitForAck(std::uint32_t expectedSeq, bool expectFinAck) {
         if (recvLen == SOCKET_ERROR) {
             const int error = WSAGetLastError();
             if (error == WSAETIMEDOUT) {
+                if (cancelled && cancelled->load()) return false;
+                if (std::chrono::steady_clock::now() < retransmitDeadline) {
+                    continue;
+                }
                 return false;
             }
             std::cerr << "[UDP Sender] recvfrom failed. Error=" << error << '\n';

@@ -1,4 +1,4 @@
-﻿#ifndef UDP_RECEIVER_H
+#ifndef UDP_RECEIVER_H
 #define UDP_RECEIVER_H
 
 #include <cstddef>
@@ -39,7 +39,8 @@ public:
     );
     bool receivePassiveFile(const std::string& savePath, int listenPort,
         const std::string& serverIP, int serverPort,
-        std::atomic<int>* readyState = nullptr);
+        std::atomic<int>* readyState = nullptr,
+        const std::atomic<bool>* cancel = nullptr);
 };
 
 #endif
